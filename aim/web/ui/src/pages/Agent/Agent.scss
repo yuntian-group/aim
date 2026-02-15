@@ -148,10 +148,25 @@
   &__structuredSection {
     margin-top: 1rem;
 
+    &__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
     &__title {
       margin-bottom: 0.5rem;
       text-transform: uppercase;
       letter-spacing: 0.04em;
+    }
+
+    &__hint {
+      margin: -0.25rem 0 0.5rem;
+      font-size: $text-xs;
+      color: $text-color-50;
     }
   }
 

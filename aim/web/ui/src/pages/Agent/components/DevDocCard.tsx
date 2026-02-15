@@ -8,9 +8,19 @@ interface DevDocCardProps {
   id: string;
   doc: DevDoc;
   onCompare: (id: string, doc: DevDoc) => void;
+  onToggleKeep?: (id: string, nextSelected: boolean) => void;
+  keepDisabled?: boolean;
+  keepPending?: boolean;
 }
 
-function DevDocCard({ id, doc, onCompare }: DevDocCardProps) {
+function DevDocCard({
+  id,
+  doc,
+  onCompare,
+  onToggleKeep,
+  keepDisabled = false,
+  keepPending = false,
+}: DevDocCardProps) {
   const [isExpanded, setIsExpanded] = React.useState(false);
 
   const handleToggle = React.useCallback(() => {
@@ -43,6 +53,12 @@ function DevDocCard({ id, doc, onCompare }: DevDocCardProps) {
   const handleCompare = React.useCallback(() => {
     onCompare(id, doc);
   }, [id, doc, onCompare]);
+
+  const handleKeepToggle = React.useCallback(() => {
+    if (typeof onToggleKeep === 'function') {
+      onToggleKeep(id, !Boolean(doc.selected));
+    }
+  }, [id, doc.selected, onToggleKeep]);
 
   const metricName = doc.metric?.name ?? '—';
   const metricThreshold = doc.metric?.threshold ?? '—';
@@ -93,6 +109,15 @@ function DevDocCard({ id, doc, onCompare }: DevDocCardProps) {
         </div>
       </div>
       <div className='Agent__cardActions'>
+        <Button
+          variant={doc.selected ? 'contained' : 'outlined'}
+          size='small'
+          onClick={handleKeepToggle}
+          disabled={keepDisabled || keepPending}
+          className='Agent__cardActions__button'
+        >
+          {keepPending ? 'Saving...' : doc.selected ? 'Unkeep' : 'Keep'}
+        </Button>
         <Button
           variant='outlined'
           size='small'

@@ -1,4 +1,6 @@
 export interface ProbeIdea {
+  id?: string;
+  selected?: boolean;
   probe_type: string;
   probe_name: string;
   explanation: string;
@@ -8,6 +10,7 @@ export interface ProbeIdea {
 
 export interface DevDoc {
   doc_id: string;
+  selected?: boolean;
   title: string;
   confidence: string;
   metric: any;

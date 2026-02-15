@@ -198,6 +198,25 @@ function put<ResponseDataType>(
   );
 }
 
+function patch<ResponseDataType>(
+  url: string,
+  data: object,
+  options?: RequestInit,
+  apiHost: string = getAPIHost(),
+) {
+  return createAPIRequestWrapper<ResponseDataType>(
+    url,
+    {
+      method: 'PATCH',
+      ...options,
+      headers: getRequestHeaders(),
+      body: JSON.stringify(data),
+    },
+    false,
+    apiHost,
+  );
+}
+
 function remove<ResponseDataType>(
   url: string,
   options?: RequestInit,
@@ -373,6 +392,7 @@ const API = {
   getStream1,
   post,
   put,
+  patch,
   delete: remove,
 };
 

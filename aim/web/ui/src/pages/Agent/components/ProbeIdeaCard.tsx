@@ -8,9 +8,19 @@ interface ProbeIdeaCardProps {
   id: string;
   probe: ProbeIdea;
   onCompare: (id: string, probe: ProbeIdea) => void;
+  onToggleKeep?: (id: string, nextSelected: boolean) => void;
+  keepDisabled?: boolean;
+  keepPending?: boolean;
 }
 
-function ProbeIdeaCard({ id, probe, onCompare }: ProbeIdeaCardProps) {
+function ProbeIdeaCard({
+  id,
+  probe,
+  onCompare,
+  onToggleKeep,
+  keepDisabled = false,
+  keepPending = false,
+}: ProbeIdeaCardProps) {
   const handleCompare = React.useCallback(() => {
     onCompare(id, probe);
   }, [id, probe, onCompare]);
@@ -30,6 +40,12 @@ function ProbeIdeaCard({ id, probe, onCompare }: ProbeIdeaCardProps) {
       console.log({ kind: 'PROBE_IDEA', action: 'copy', id, payload });
     }
   }, [id, probe]);
+
+  const handleToggleKeep = React.useCallback(() => {
+    if (typeof onToggleKeep === 'function') {
+      onToggleKeep(id, !Boolean(probe.selected));
+    }
+  }, [id, probe.selected, onToggleKeep]);
 
   return (
     <div className='Agent__probeCard'>
@@ -53,6 +69,15 @@ function ProbeIdeaCard({ id, probe, onCompare }: ProbeIdeaCardProps) {
         {probe.explanation || '(no explanation provided)'}
       </p>
       <div className='Agent__cardActions'>
+        <Button
+          variant={probe.selected ? 'contained' : 'outlined'}
+          size='small'
+          onClick={handleToggleKeep}
+          disabled={keepDisabled || keepPending}
+          className='Agent__cardActions__button'
+        >
+          {keepPending ? 'Saving...' : probe.selected ? 'Unkeep' : 'Keep'}
+        </Button>
         <Button
           variant='outlined'
           size='small'
