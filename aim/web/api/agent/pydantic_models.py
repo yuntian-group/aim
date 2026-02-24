@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 class AgentCommandIn(BaseModel):
     type: str
-    prompt: str
+    payload: str
     timeout: Optional[int] = 120
 
 

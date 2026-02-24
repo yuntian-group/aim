@@ -1,4 +1,23 @@
 # Agent <-> Server protocol command types
-COMMAND_TYPE_CODEX_EXEC = "codex_exec"
-COMMAND_TYPE_IDENTIFY = "identify"
-COMMAND_TYPE_METRICS = "metrics"
+COMMAND_TYPE_CODEX_EXEC = 'codex_exec'
+COMMAND_TYPE_IDENTIFY = 'identify'
+COMMAND_TYPE_METRICS = 'metrics'
+COMMAND_TYPE_UPDATE_CONTEXT_INFO = 'update_context_info'
+COMMAND_TYPE_UPDATE_HYPOTHESIS_INFO = 'update_hypothesis_info'
+COMMAND_TYPE_CODEX_HYPOTHESIS_GENERATION = 'codex_hypothesis_generation'
+COMMAND_TYPE_CODEX_HYPOTHESIS_SELECTION = 'codex_hypothesis_selection'
+COMMAND_TYPE_RUN_REACT_LOOP = 'run_react_loop'
+COMMAND_TYPE_STOP_REACT_LOOP = 'stop_react_loop'
+COMMAND_TYPE_CODEX_DEV_PLAN_SELECTION = 'codex_dev_plan_selection'
+
+AGENT_STATE_INIT = 'init'
+AGENT_STATE_IDLE = 'idle'
+AGENT_STATE_CONTEXT_COLLECTING = 'context_collecting'
+AGENT_STATE_HYPOTHESIS_GENERATING = 'hypothesis_generating'
+AGENT_STATE_HYPOTHESIS_SELECTION = 'hypothesis_selection'
+AGENT_STATE_HYPOTHESIS_DEV_PLAN_GENERATION = 'hypothesis_dev_plan_generation'
+AGENT_STATE_HYPOTHESIS_CODE_GENERATING = 'hypothesis_code_generating'
+AGENT_STATE_READY_TO_TRAIN = 'ready_to_train'
+AGENT_STATE_TRAINING = 'training'
+AGENT_STATE_REFLECTING = 'reflecting'
+AGENT_STATE_DONE = 'done'

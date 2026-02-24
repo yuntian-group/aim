@@ -27,11 +27,11 @@ function getAgentsData() {
   };
 }
 
-function instructAgent(runHash: string, prompt: string) {
-  const { call, abort } = agentService.instructAgent(runHash, {
-    type: 'codex_exec',
-    prompt,
-  });
+function instructAgent(
+  runHash: string,
+  body: { type: string; payload: string; timeout?: number },
+) {
+  const { call, abort } = agentService.instructAgent(runHash, body);
 
   return {
     call: () => {
