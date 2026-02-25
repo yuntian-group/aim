@@ -6,7 +6,7 @@ from pydantic import BaseModel
 class AgentCommandIn(BaseModel):
     type: str
     payload: str
-    timeout: Optional[int] = 120
+    timeout: Optional[float] = None
 
 
 class AgentCommandOut(BaseModel):

@@ -68,6 +68,9 @@ async def agent_websocket(websocket: WebSocket):
         if run_hash:
             print(f'Agent disconnected: run_hash={run_hash}')
             _connected_agents.pop(run_hash, None)
+        for cmd_id, fut in list(_pending_commands.items()):
+            if not fut.done():
+                fut.set_result({'id': cmd_id, 'status': 'failed', 'error': 'Agent disconnected'})
 
 
 @agent_router.get('/', response_model=List[str])

@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-import subprocess
+import shutil
 
 from pathlib import Path
 from typing import Any
@@ -24,28 +24,30 @@ from aim.sdk.agent.constants import (
     COMMAND_TYPE_CODEX_HYPOTHESIS_GENERATION,
     COMMAND_TYPE_CODEX_HYPOTHESIS_SELECTION,
     COMMAND_TYPE_IDENTIFY,
-    COMMAND_TYPE_METRICS,
     COMMAND_TYPE_RUN_REACT_LOOP,
     COMMAND_TYPE_STOP_REACT_LOOP,
     COMMAND_TYPE_UPDATE_CONTEXT_INFO,
 )
+from aim.sdk.agent.prompts import (
+    APPLY_DEV_DOC,
+    DEV_DOC_GENERATION,
+    HYPOTHESIS_GENERATION,
+    render_iterative_update,
+    render_reflect_and_update,
+)
+from aim.sdk.agent.research_agent_logger import (
+    AGENT_LOG_PROBER_PREFIX,
+    AGENT_LOG_TEST_PREFIX,
+    TYPE_FIGURE,
+    TYPE_IMAGE,
+    TYPE_METRIC,
+)
+from aim.sdk.objects.image import Image as AimImage
 from aim.sdk.run import Run
 from aim.web.configs import AIM_UI_DEFAULT_PORT
 
 
 WEBSOCKET_ADDRESS = f'ws://localhost:{AIM_UI_DEFAULT_PORT}/api/agent/ws'
-
-
-def mock_codex_hypothesis_gen_call(prompt: str) -> str:
-    pass
-
-
-def mock_codex_dev_plan_gen_call(prompt: str) -> str:
-    pass
-
-
-def mock_codex_code_gen_call(prompt: str) -> str:
-    pass
 
 
 class AimResearchAgent:
@@ -59,8 +61,15 @@ class AimResearchAgent:
         self._ws: websockets.WebSocketClientProtocol | None = None
         self._pending_tasks: set[asyncio.Task] = set()
         self._all_hypotheses: list[str] = []
+        self._all_dev_plans: list[str] = []
         self._context_info_path = None
         self._hypothesis_info_path = None
+        self._react_loop_session_id: str | None = None
+        self._prober_results_dir = Path(self.repo_path) / '.codex' / 'prober_results'
+        self._cur_test_result_metrics: dict[str, list[dict]] = {}
+        self._cur_prober_result_metrics: dict[str, list[dict]] = {}
+        self._cur_test_result_images: list[dict] = []
+        self._cur_prober_result_images: list[dict] = []
 
     def _resolve_repo_file_path(self, input_path: str, default_path: str) -> Path:
         if not input_path:
@@ -74,58 +83,100 @@ class AimResearchAgent:
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_text(content, encoding='utf-8')
 
-    def codex_exec(self, prompt: str, timeout: int = 120) -> str:
-        """Execute a prompt via the Codex CLI, maintaining session across calls.
+    async def codex_exec(self, prompt: str, session_id: str = None) -> tuple[str, str | None]:
+        """Execute a prompt via the Codex CLI asynchronously.
 
-        On the first call, starts a new session and saves the thread_id.
-        Subsequent calls resume the existing session for multi-turn conversation.
+        Streams JSONL output and detects completion from the process exit
+        rather than relying on a hard timeout.
+
+        Returns:
+            A tuple of (response_text, session_id). session_id is extracted
+            from the JSONL stream and can be used to resume the conversation.
         """
-        if self._codex_session_id:
-            cmd = ['codex', 'exec', 'resume', self._codex_session_id, '--json', prompt]
+
+        print(f'[codex_exec] {prompt}')
+
+        if session_id:
+            cmd = ['codex', 'exec', 'resume', session_id, '--json', prompt]
         else:
             cmd = ['codex', 'exec', '--json', prompt]
 
-        result = subprocess.run(
-            cmd,
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
             cwd=self.repo_path,
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
         )
-        if result.returncode != 0:
-            error = result.stderr.strip() or 'Unknown error'
-            raise RuntimeError(f'codex exec failed ({result.returncode}): {error}')
+
         response_text = ''
-        for line in result.stdout.strip().splitlines():
+        extracted_session_id: str | None = session_id
+        assert process.stdout
+        while True:
+            raw = await process.stdout.readline()
+            if not raw:
+                break
+            line = raw.decode().strip()
             if not line:
                 continue
             try:
                 print(f'[codex_exec] {line}')
                 data = json.loads(line)
-                if data.get('type') == 'thread.started' and self._codex_session_id is None:
-                    self._codex_session_id = data['thread_id']
-                elif data.get('type') == 'item.completed':
+                if data.get('type') == 'response.created' and not extracted_session_id:
+                    extracted_session_id = data.get('response', {}).get('id')
+                if not extracted_session_id:
+                    extracted_session_id = data.get('session_id') or data.get('thread_id')
+                if data.get('type') == 'item.completed':
                     item = data.get('item', {})
                     if item.get('type') == 'agent_message':
                         response_text = item.get('text', '')
             except json.JSONDecodeError:
                 continue
 
-        return response_text
+        exit_code = await process.wait()
+        if exit_code != 0:
+            raise RuntimeError(f'codex exec failed (exit code {exit_code})')
+
+        return response_text, extracted_session_id
 
     def _handle_training_log(self, data: str):
         try:
             payload: dict = json.loads(data)
+            log_type = payload.get('type')
+            name = payload.get('name', '')
 
-            if payload.get('type') == COMMAND_TYPE_METRICS:
-                metrics: dict = json.loads(payload.get('metrics'))
-                epoch = metrics.pop('epoch', None)
-                step = metrics.pop('step', None)
-                for name, value in metrics.items():
-                    if isinstance(value, (int, float)):
-                        self.run.track(value, name=name, step=step, epoch=epoch)
-                        print(f'[train] {name}: {value}')
+            if log_type == TYPE_METRIC:
+                value = payload.get('value')
+                epoch = payload.get('epoch', None)
+                step = payload.get('step', None)
+                self.run.track(value, name=name, step=step, epoch=epoch)
+
+                record = {'value': value, 'step': step, 'epoch': epoch}
+                if name.startswith(AGENT_LOG_TEST_PREFIX):
+                    self._cur_test_result_metrics.setdefault(name, []).append(record)
+                elif name.startswith(AGENT_LOG_PROBER_PREFIX):
+                    self._cur_prober_result_metrics.setdefault(name, []).append(record)
+
+                print(f'[train] {name}: {value}')
+
+            elif log_type in (TYPE_IMAGE, TYPE_FIGURE):
+                raw_path = payload.get('path', '')
+                step = payload.get('step', None)
+                epoch = payload.get('epoch', None)
+                abs_path = (
+                    str(Path(self.repo_path) / raw_path) if raw_path and not Path(raw_path).is_absolute() else raw_path
+                )
+                try:
+                    aim_img = AimImage(abs_path)
+                    self.run.track(aim_img, name=name, step=step, epoch=epoch)
+                except Exception as e:
+                    print(f'[train] Failed to track image to Aim: {e}')
+                record = {'name': name, 'path': abs_path}
+                if name.startswith(AGENT_LOG_TEST_PREFIX):
+                    self._cur_test_result_images.append(record)
+                elif name.startswith(AGENT_LOG_PROBER_PREFIX):
+                    self._cur_prober_result_images.append(record)
+                print(f'[train] {log_type} {name}: {abs_path}')
+
             else:
                 print(f'[train] {str(data)}')
         except json.JSONDecodeError:
@@ -133,19 +184,208 @@ class AimResearchAgent:
         except Exception as e:
             print(f'[train] Error tracking metric: {e}')
 
-    def _run_react_loop(self, num_iterations: int):
-        # TODO: implement the react loop
+    def _snapshot_round_images(self, round_number: int):
+        """Copy current round's images to round-specific paths so they are not
+        overwritten by subsequent rounds.  Updates the image record lists
+        in-place to point to the new snapshot paths."""
+        dest_dir = self._prober_results_dir / f'round_{round_number}'
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        for img_list in (self._cur_test_result_images, self._cur_prober_result_images):
+            for record in img_list:
+                src = Path(record['path'])
+                if not src.is_file():
+                    continue
+                dest = dest_dir / f'{src.stem}_round_{round_number}{src.suffix}'
+                shutil.copy2(src, dest)
+                record['path'] = str(dest)
+
+    def _save_round_prober_results(self, round_number: int) -> Path:
+        """Save the current round's prober results to disk and append to history.
+
+        Returns the path to the cumulative history file.
+        """
+        self._prober_results_dir.mkdir(parents=True, exist_ok=True)
+
+        prober_metrics = self._serialize_metrics(self._cur_prober_result_metrics)
+        prober_images = self._serialize_images(self._cur_prober_result_images)
+        eval_metrics = self._serialize_metrics(self._cur_test_result_metrics)
+        eval_images = self._serialize_images(self._cur_test_result_images)
+
+        round_md = (
+            f'# Round {round_number}\n\n'
+            f'## Prober Metrics\n{prober_metrics}\n\n'
+            f'## Prober Figures\n{prober_images}\n\n'
+            f'## Evaluation Metrics\n{eval_metrics}\n\n'
+            f'## Evaluation Figures\n{eval_images}\n'
+        )
+
+        round_path = self._prober_results_dir / f'round_{round_number}.md'
+        round_path.write_text(round_md, encoding='utf-8')
+        print(f'[react_loop] Saved round {round_number} prober results to {round_path}')
+
+        history_path = self._prober_results_dir / 'history.md'
+        with history_path.open('a', encoding='utf-8') as f:
+            f.write(round_md + '\n---\n\n')
+
+        return history_path
+
+    def _reset_iteration_results(self):
+        self._cur_test_result_metrics = {}
+        self._cur_prober_result_metrics = {}
+        self._cur_test_result_images = []
+        self._cur_prober_result_images = []
+
+    @staticmethod
+    def _serialize_metrics(metrics: dict[str, list[dict]]) -> str:
+        if not metrics:
+            return 'No metrics recorded.'
+        lines: list[str] = []
+        for name, records in metrics.items():
+            last = records[-1]
+            parts = [f'**{name}**: {last["value"]}']
+            if last.get('step') is not None:
+                parts.append(f'step={last["step"]}')
+            if last.get('epoch') is not None:
+                parts.append(f'epoch={last["epoch"]}')
+            lines.append(f'- {", ".join(parts)}')
+            if len(records) > 1:
+                values = [r['value'] for r in records if isinstance(r['value'], (int, float))]
+                if values:
+                    lines.append(f'  (history: {len(records)} records, min={min(values)}, max={max(values)})')
+        return '\n'.join(lines)
+
+    @staticmethod
+    def _serialize_images(images: list[dict]) -> str:
+        if not images:
+            return 'No images/figures recorded.'
+        lines: list[str] = []
+        for img in images:
+            lines.append(f'- **{img["name"]}**: `{img["path"]}`')
+        return '\n'.join(lines)
+
+    async def _run_training(self):
+        """Run train.py, stream output through _read_loop, and wait for exit."""
+        self._train_process = await asyncio.create_subprocess_exec(
+            'python',
+            'train.py',
+            cwd=self.repo_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        self._read_loop_task = asyncio.create_task(self._read_loop())
+        await self._train_process.wait()
+        await self._read_loop_task
+
+    def _build_eval_and_prober_strings(self) -> tuple[str, str]:
+        eval_result = (
+            '## Metrics\n'
+            f'{self._serialize_metrics(self._cur_test_result_metrics)}\n\n'
+            '## Figures\n'
+            f'{self._serialize_images(self._cur_test_result_images)}'
+        )
+        prober_result = (
+            '## Metrics\n'
+            f'{self._serialize_metrics(self._cur_prober_result_metrics)}\n\n'
+            '## Figures\n'
+            f'{self._serialize_images(self._cur_prober_result_images)}'
+        )
+        return eval_result, prober_result
+
+    async def _run_react_loop(self, num_iterations: int):
+        self._react_loop_session_id = None
+        history_path = self._prober_results_dir / 'history.md'
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        if history_path.exists():
+            history_path.unlink()
+
         for i in range(num_iterations):
-            print(f'[react_loop] Iteration {i}')
+            print(f'[react_loop] Optimization round {i}')
+            self._reset_iteration_results()
             self.state = AGENT_STATE_TRAINING
-            # TODO: start training process and capture the output
+
+            await self._run_training()
+
             self.state = AGENT_STATE_REFLECTING
-            # TODO: call codex with collected metrics and hypothesis to generate optimized code
+
+            self._snapshot_round_images(i)
+            eval_result, prober_result = self._build_eval_and_prober_strings()
+            self._save_round_prober_results(i)
+
+            if i == 0:
+                prompt = render_reflect_and_update(
+                    prober_result=prober_result,
+                    eval_result=eval_result,
+                )
+                _, session_id = await self.codex_exec(prompt)
+                self._react_loop_session_id = session_id
+                print(f'[react_loop] Captured codex session: {session_id}')
+            else:
+                prompt = render_iterative_update(
+                    round_number=i,
+                    prober_result=prober_result,
+                    eval_result=eval_result,
+                )
+                _, session_id = await self.codex_exec(
+                    prompt,
+                    session_id=self._react_loop_session_id,
+                )
+                if session_id:
+                    self._react_loop_session_id = session_id
+
+        # Final training run to show results after all optimizations
+        print('[react_loop] Running final training to show optimized results')
+        self._reset_iteration_results()
+        self.state = AGENT_STATE_TRAINING
+        await self._run_training()
+        self._snapshot_round_images(num_iterations)
+        eval_result, prober_result = self._build_eval_and_prober_strings()
+        self._save_round_prober_results(num_iterations)
+        print(f'[react_loop] Final results saved as round {num_iterations}')
+
+        self.state = AGENT_STATE_READY_TO_TRAIN
+
+    @staticmethod
+    def _format_probe_design_as_markdown(probe_design: Any) -> str:
+        """Convert a probe design item (dict or string) into a readable markdown document."""
+        if isinstance(probe_design, str):
+            return probe_design
+
+        if not isinstance(probe_design, dict):
+            return str(probe_design)
+
+        lines: list[str] = ['# Prober Design Idea', '']
+
+        if 'probe_name' in probe_design:
+            lines += [f'## {probe_design["probe_name"]}', '']
+
+        if 'probe_type' in probe_design:
+            lines += [f'**Probe Type:** {probe_design["probe_type"]}', '']
+
+        if 'content' in probe_design:
+            lines += ['## Design Details', '', probe_design['content'], '']
+
+        known_keys = {'probe_type', 'probe_name', 'content', 'confidence'}
+        extra = {k: v for k, v in probe_design.items() if k not in known_keys}
+        if extra:
+            lines += ['## Additional Information', '']
+            for key, value in extra.items():
+                lines += [f'**{key}:** {value}', '']
+
+        return '\n'.join(lines)
 
     def _parse_hypothesis_info(self, codex_responses: str) -> list[str]:
         try:
             data = json.loads(codex_responses)
-            ret = data.get('PROBE_IDEA', [])
+            ret = data.get('probe_designs', [])
+            return ret
+        except json.JSONDecodeError:
+            return []
+
+    def _parse_dev_plan_info(self, codex_responses: str) -> list[str]:
+        try:
+            data = json.loads(codex_responses)
+            ret = data.get('dev_plans', [])
             return ret
         except json.JSONDecodeError:
             return []
@@ -153,16 +393,21 @@ class AimResearchAgent:
     async def _read_loop(self):
         assert self._train_process and self._train_process.stdout
         print('Training monitor started')
-        async for raw in self._train_process.stdout:
+        while True:
+            raw = await self._train_process.stdout.readline()
+            if not raw:
+                break
             line = raw.decode().strip()
             if not line:
                 continue
-            try:
-                loop = asyncio.get_running_loop()
-                await loop.run_in_executor(None, self._handle_training_log, line)
-            except json.JSONDecodeError:
-                print(f'[train] {line}')
+            self._handle_training_log(line)
         print('Training process ended')
+
+    def _stop_react_loop(self):
+        if self._train_process and self._train_process.returncode is None:
+            self._train_process.terminate()
+        if self._read_loop_task and not self._read_loop_task.done():
+            self._read_loop_task.cancel()
 
     async def _handle_command(self, cmd_id: str, data: dict) -> Any:
         cmd_type = data.get('type', '')
@@ -172,10 +417,7 @@ class AimResearchAgent:
             if not isinstance(context_info, str) or not context_info.strip():
                 print('[update_context_info] No context information provided')
                 context_info = 'No context information provided'
-            context_path = self._resolve_repo_file_path(
-                data.get('context_info_path', ''),
-                '.codex/context_info.md',
-            )
+            context_path = Path(self.repo_path) / '.codex/context_info.md'
             self._write_text_file(context_path, context_info)
             self._context_info_path = str(context_path)
             self.state = AGENT_STATE_HYPOTHESIS_GENERATING
@@ -189,53 +431,60 @@ class AimResearchAgent:
                 print('[codex_hypothesis_generation] No hypothesis information provided')
                 hypothesis_info = 'No hypothesis information provided'
 
-            context = ''
-            if self._context_info_path:
-                context_path = Path(self._context_info_path)
-                if context_path.exists():
-                    context = context_path.read_text(encoding='utf-8')
+            hypothesis_path = Path(self.repo_path) / '.codex/prober_guide.md'
+            self._write_text_file(hypothesis_path, hypothesis_info)
 
-            codex_prompt = (
-                f'Based on the following context:\n{context}\n\n'
-                f'And the following guidance:\n{hypothesis_info}\n\n'
-                'Generate a list of research hypotheses. '
-                "Return ONLY a JSON object with a 'PROBE_IDEA' key "
-                'containing an array of hypothesis strings.'
-            )
-
-            loop = asyncio.get_running_loop()
-            raw_response = await loop.run_in_executor(None, self.codex_exec, codex_prompt, 120)
+            codex_prompt = HYPOTHESIS_GENERATION
+            raw_response, _ = await self.codex_exec(codex_prompt)
             self._all_hypotheses = self._parse_hypothesis_info(raw_response)
 
             self.state = AGENT_STATE_HYPOTHESIS_SELECTION
             return json.dumps(self._all_hypotheses)
 
         if cmd_type == COMMAND_TYPE_CODEX_HYPOTHESIS_SELECTION and self.state == AGENT_STATE_HYPOTHESIS_SELECTION:
-            # TODO: select the best hypothesis from self._all_hypotheses
+            selection_info = data.get('payload') or data.get('selection_info')
+
+            selected_hypothesis_index = int(selection_info) if selection_info else 0
+
+            selected_hypothesis = self._all_hypotheses[selected_hypothesis_index]
+            hypothesis_md = self._format_probe_design_as_markdown(selected_hypothesis)
+
+            hypothesis_path = Path(self.repo_path) / '.codex/prober_design_idea.md'
+
+            print(f'[codex_hypothesis_selection] saved prober design idea to {hypothesis_path}')
+
+            self._write_text_file(hypothesis_path, hypothesis_md)
             self.state = AGENT_STATE_HYPOTHESIS_DEV_PLAN_GENERATION
-            # TODO: call codex_exec to generate the dev plan
-            return 'Hypothesis selected'
+            codex_prompt = DEV_DOC_GENERATION
+            raw_response, _ = await self.codex_exec(codex_prompt)
+            self._all_dev_plans = self._parse_dev_plan_info(raw_response)
+            return json.dumps(self._all_dev_plans)
 
         if (
             cmd_type == COMMAND_TYPE_CODEX_DEV_PLAN_SELECTION
             and self.state == AGENT_STATE_HYPOTHESIS_DEV_PLAN_GENERATION
         ):
-            # TODO: select the best dev plan from self._all_dev_plans
+            selection_info = data.get('payload') or data.get('selection_info')
+            selected_dev_plan_index = int(selection_info) if selection_info else 0
+            selected_dev_plan = self._all_dev_plans[selected_dev_plan_index]
+            dev_doc_path = Path(self.repo_path) / '.codex/development_plan.md'
+            self._write_text_file(dev_doc_path, selected_dev_plan)
+
+            codex_prompt = APPLY_DEV_DOC
+            raw_response, _ = await self.codex_exec(codex_prompt)
             self.state = AGENT_STATE_READY_TO_TRAIN
-            # TODO: call codex_exec to generate the code
-            return 'Dev plan selected'
+            return raw_response
 
         if cmd_type == COMMAND_TYPE_RUN_REACT_LOOP and self.state == AGENT_STATE_READY_TO_TRAIN:
-            # TODO: get the number of iterations from the data
-            num_iterations = data.get('num_iterations', 2)
-            # START THE REACT LOOP
-            pass
-            return f'React loop requested for {num_iterations} iterations'
+            raw = data.get('payload') or data.get('num_iterations') or 2
+            num_iterations = int(raw)
+            await self._run_react_loop(num_iterations)
+            return f'React loop completed for {num_iterations} iterations'
 
         if cmd_type == COMMAND_TYPE_STOP_REACT_LOOP and (
             self.state == AGENT_STATE_TRAINING or self.state == AGENT_STATE_REFLECTING
         ):
-            # TODO: stop the training process
+            self._stop_react_loop()
             self.state = AGENT_STATE_READY_TO_TRAIN
             return 'React loop stopped'
 
@@ -243,9 +492,8 @@ class AimResearchAgent:
             prompt = data.get('payload', '')
             if not prompt:
                 raise ValueError("codex_exec command requires a non-empty 'payload' field")
-            timeout = data.get('timeout', 120)
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self.codex_exec, prompt, timeout)
+            response_text, _ = await self.codex_exec(prompt)
+            return response_text
 
         raise ValueError(f'Unknown command type: {cmd_type!r}')
 

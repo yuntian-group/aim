@@ -6,8 +6,10 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 from aim.sdk.agent.research_agent_logger import ResearchAgentLogger
+from prober import NonexistentDetailInjectionProber
 
 logger = ResearchAgentLogger()
+prober = NonexistentDetailInjectionProber(logger)
 
 NUM_EPOCHS = 20
 STEPS_PER_EPOCH = 50
@@ -44,3 +46,22 @@ for epoch in range(1, NUM_EPOCHS + 1):
         "step": epoch * STEPS_PER_EPOCH,
         "epoch_avg_loss": round(avg_loss, 5),
     })
+
+
+def _mock_model(prompt, sample=None):
+    lower_prompt = prompt.lower()
+    refusal_templates = [
+        "The context does not provide that detail.",
+        "That information is not mentioned in the context.",
+        "I cannot determine that from the provided context.",
+    ]
+    if "middle name" in lower_prompt or "serial number" in lower_prompt:
+        return refusal_templates[0]
+    if "funded" in lower_prompt or "university" in lower_prompt:
+        return refusal_templates[1]
+    if "favorite song" in lower_prompt:
+        return refusal_templates[2]
+    return "That detail is not provided in the context."
+
+
+prober.run(_mock_model)

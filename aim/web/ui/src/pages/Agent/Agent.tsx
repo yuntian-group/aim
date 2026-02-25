@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo, useState } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 
 import { Paper } from '@material-ui/core';
 
@@ -9,6 +9,29 @@ import { Button, Icon, Text } from 'components/kit';
 import agentAppModel from 'services/models/agent/agentAppModel';
 
 import './Agent.scss';
+
+function formatResult(value: string): string {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
+function hypothesisLabel(item: any, index: number): string {
+  if (typeof item === 'object' && item !== null) {
+    const name = item.probe_name || item.name || `Hypothesis ${index + 1}`;
+    const conf =
+      item.confidence != null ? ` (confidence: ${item.confidence})` : '';
+    return `${name}${conf}`;
+  }
+  return String(item);
+}
+
+function truncateLabel(text: string, maxLen = 100): string {
+  const single = text.replace(/\s+/g, ' ').trim();
+  return single.length > maxLen ? single.slice(0, maxLen) + '…' : single;
+}
 
 interface IAgentProps {
   agentsList: string[];
@@ -26,10 +49,11 @@ function Agent({
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [contextInfo, setContextInfo] = useState('');
   const [hypothesisPrompt, setHypothesisPrompt] = useState('');
-  const [selectedHypothesis, setSelectedHypothesis] = useState('');
-  const [storedHypotheses, setStoredHypotheses] = useState<string[]>([]);
+  const [selectedHypothesisIdx, setSelectedHypothesisIdx] = useState('');
+  const [storedHypotheses, setStoredHypotheses] = useState<any[]>([]);
   const [lastInstructType, setLastInstructType] = useState('');
-  const [selectedDevPlan, setSelectedDevPlan] = useState('');
+  const [selectedDevPlanIdx, setSelectedDevPlanIdx] = useState('');
+  const [storedDevPlans, setStoredDevPlans] = useState<string[]>([]);
   const [numIterations, setNumIterations] = useState<number>(2);
 
   function handleRefresh() {
@@ -56,7 +80,7 @@ function Agent({
   }
 
   function handleHypothesisSelectionSubmit() {
-    sendInstruction('codex_hypothesis_selection', selectedHypothesis);
+    sendInstruction('codex_hypothesis_selection', selectedHypothesisIdx);
   }
 
   function handleRunLoopSubmit() {
@@ -64,7 +88,7 @@ function Agent({
   }
 
   function handleDevPlanSubmit() {
-    sendInstruction('codex_dev_plan_selection', selectedDevPlan);
+    sendInstruction('codex_dev_plan_selection', selectedDevPlanIdx);
   }
 
   function handleTextareaSubmit(
@@ -78,41 +102,34 @@ function Agent({
   }
 
   useEffect(() => {
-    if (
-      lastInstructType === 'codex_hypothesis_generation' &&
-      instructResult?.status === 'completed' &&
-      instructResult?.result
-    ) {
+    if (instructResult?.status === 'completed' && instructResult?.result) {
       try {
         const parsed = JSON.parse(instructResult.result);
-        if (Array.isArray(parsed)) {
-          setStoredHypotheses(parsed.map((item: any) => String(item)));
+        if (
+          lastInstructType === 'codex_hypothesis_generation' &&
+          Array.isArray(parsed)
+        ) {
+          setStoredHypotheses(parsed);
+          setSelectedHypothesisIdx('');
+        } else if (
+          lastInstructType === 'codex_hypothesis_selection' &&
+          Array.isArray(parsed)
+        ) {
+          setStoredDevPlans(parsed.map((item: any) => String(item)));
+          setSelectedDevPlanIdx('');
         }
       } catch {
-        // result is not a valid JSON array
+        // result is not valid JSON
       }
     }
   }, [instructResult, lastInstructType]);
 
-  const selectedHypothesisContent =
-    selectedHypothesis || storedHypotheses[0] || '';
-  const devPlanCandidates = useMemo(() => {
-    const result =
-      instructResult?.status === 'completed' ? instructResult?.result : '';
-    if (typeof result === 'string') {
-      try {
-        const parsed = JSON.parse(result);
-        if (Array.isArray(parsed)) {
-          return parsed.map((item) => String(item));
-        }
-      } catch {
-        // fallback to current hypothesis selection
-      }
-    }
-
-    return selectedHypothesis ? [selectedHypothesis] : [];
-  }, [instructResult, selectedHypothesis]);
-  const selectedDevPlanContent = selectedDevPlan || devPlanCandidates[0] || '';
+  const selectedHypothesisContent = selectedHypothesisIdx
+    ? storedHypotheses[Number(selectedHypothesisIdx)]
+    : storedHypotheses[0];
+  const selectedDevPlanContent = selectedDevPlanIdx
+    ? storedDevPlans[Number(selectedDevPlanIdx)]
+    : storedDevPlans[0];
 
   const isAgentDisabled = !selectedAgent || isInstructLoading;
 
@@ -256,8 +273,8 @@ function Agent({
                 <div className='Agent__workflow__selection'>
                   <select
                     className='Agent__workflow__select'
-                    value={selectedHypothesis}
-                    onChange={(e) => setSelectedHypothesis(e.target.value)}
+                    value={selectedHypothesisIdx}
+                    onChange={(e) => setSelectedHypothesisIdx(e.target.value)}
                     disabled={isAgentDisabled || storedHypotheses.length === 0}
                   >
                     <option value=''>
@@ -265,9 +282,9 @@ function Agent({
                         ? 'Select one hypothesis'
                         : 'No hypotheses available'}
                     </option>
-                    {storedHypotheses.map((item: string) => (
-                      <option key={item} value={item}>
-                        {item}
+                    {storedHypotheses.map((item: any, idx: number) => (
+                      <option key={idx} value={String(idx)}>
+                        {hypothesisLabel(item, idx)}
                       </option>
                     ))}
                   </select>
@@ -276,7 +293,7 @@ function Agent({
                     color='primary'
                     size='small'
                     onClick={handleHypothesisSelectionSubmit}
-                    disabled={isAgentDisabled || !selectedHypothesis}
+                    disabled={isAgentDisabled || !selectedHypothesisIdx}
                     className='Agent__instruct__sendBtn'
                   >
                     {isInstructLoading ? 'Sending...' : 'Submit'}
@@ -287,8 +304,11 @@ function Agent({
                     Selected Hypothesis Detail
                   </Text>
                   <pre className='Agent__workflow__preview__body'>
-                    {selectedHypothesisContent ||
-                      'Select a hypothesis to view details.'}
+                    {selectedHypothesisContent
+                      ? typeof selectedHypothesisContent === 'object'
+                        ? JSON.stringify(selectedHypothesisContent, null, 2)
+                        : selectedHypothesisContent
+                      : 'Select a hypothesis to view details.'}
                   </pre>
                 </Paper>
               </div>
@@ -300,18 +320,18 @@ function Agent({
                 <div className='Agent__workflow__selection'>
                   <select
                     className='Agent__workflow__select'
-                    value={selectedDevPlan}
-                    onChange={(e) => setSelectedDevPlan(e.target.value)}
-                    disabled={isAgentDisabled || devPlanCandidates.length === 0}
+                    value={selectedDevPlanIdx}
+                    onChange={(e) => setSelectedDevPlanIdx(e.target.value)}
+                    disabled={isAgentDisabled || storedDevPlans.length === 0}
                   >
                     <option value=''>
-                      {devPlanCandidates.length > 0
+                      {storedDevPlans.length > 0
                         ? 'Select one dev plan'
                         : 'No dev plans available'}
                     </option>
-                    {devPlanCandidates.map((item: string) => (
-                      <option key={item} value={item}>
-                        {item}
+                    {storedDevPlans.map((item: string, idx: number) => (
+                      <option key={idx} value={String(idx)}>
+                        {truncateLabel(item)}
                       </option>
                     ))}
                   </select>
@@ -320,7 +340,7 @@ function Agent({
                     color='primary'
                     size='small'
                     onClick={handleDevPlanSubmit}
-                    disabled={isAgentDisabled || !selectedDevPlan}
+                    disabled={isAgentDisabled || !selectedDevPlanIdx}
                     className='Agent__instruct__sendBtn'
                   >
                     {isInstructLoading ? 'Sending...' : 'Submit'}
@@ -373,7 +393,7 @@ function Agent({
                 </Text>
                 <pre className='Agent__instruct__result__body'>
                   {instructResult.status === 'completed'
-                    ? instructResult.result
+                    ? formatResult(instructResult.result)
                     : instructResult.error}
                 </pre>
               </Paper>
