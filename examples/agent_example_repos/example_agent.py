@@ -5,8 +5,11 @@ from aim.sdk.run import Run
 
 
 def main():
-    run = Run(repo='/Users/kstarxin/Documents/test_aim/.aim')
-    agent = AimResearchAgent(run=run, repo_path='/Users/kstarxin/Documents/aim/examples/agent_example_repos/mimic')
+    run = Run(repo='/home/xuanhe_linux_001/.aim')
+    agent = AimResearchAgent(
+        run=run,
+        repo_path='/home/xuanhe_linux_001/aim_frontend_experiment3/aim/examples/agent_example_repos/mimic',
+    )
     asyncio.run(agent.start())
 
 

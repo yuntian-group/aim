@@ -3,8 +3,8 @@
 Expects pre-computed TF-IDF feature files produced by preprocess.py:
     {split}_tfidf.npz, {split}_meta.npz
 
-Usage:
-    python train.py --data_dir examples/data/mimiciii
+Usage (pre-processed data gets stored in ./data by preprocess.py):
+    python train.py --data_dir examples/agent_example_repos/mimic/data
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ NUM_EPOCHS = 50
 SEED = 42
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_DATA_DIR = SCRIPT_DIR / 'data'
 CKPT_DIR = SCRIPT_DIR / 'checkpoint'
 
 ETH_NAMES = ['white', 'black', 'hispanic', 'asian', 'other']
@@ -195,7 +196,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--data_dir',
         type=str,
-        default='../../data/mimiciii',
+        default=str(DEFAULT_DATA_DIR),
         help='Directory with pre-computed feature .npz files',
     )
     args = parser.parse_args()

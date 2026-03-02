@@ -61,17 +61,26 @@ def load_table(
     name: str,
     usecols: list[str] | None = None,
 ) -> pd.DataFrame:
-    """Load a MIMIC-III table, preferring uncompressed CSV over .csv.gz."""
+    """Load a MIMIC-III table, preferring uncompressed CSV over .csv.gz.
+
+    Supports a broken layout where {NAME}.csv is a directory containing {NAME}.csv.
+    """
     csv_path = data_dir / f"{name}.csv"
+    nested_csv_path = csv_path / f"{name}.csv"   # handles ADMISSIONS.csv/ADMISSIONS.csv
     gz_path = data_dir / f"{name}.csv.gz"
 
-    path = csv_path if csv_path.exists() else gz_path if gz_path.exists() else None
-    if path is None:
+    if csv_path.is_file():
+        path = csv_path
+    elif csv_path.is_dir() and nested_csv_path.is_file():
+        path = nested_csv_path
+    elif gz_path.is_file():
+        path = gz_path
+    else:
         raise FileNotFoundError(
-            f"Neither {csv_path} nor {gz_path} found in {data_dir}"
+            f"Could not find {name}.csv, {name}.csv/{name}.csv, or {name}.csv.gz in {data_dir}"
         )
 
-    logger.info("Loading %-15s from %s", name, path.name)
+    logger.info("Loading %-15s from %s", name, path)
     df = pd.read_csv(path, usecols=usecols, low_memory=False)
     logger.info("  -> %d rows, %d columns", len(df), len(df.columns))
     return df
@@ -278,11 +287,18 @@ TEXT_COL = "chartext"
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-def main(data_path: str) -> None:
+def main(data_path: str | Path, output_path: str | Path | None = None) -> None:
     data_dir = Path(data_path)
     if not data_dir.is_dir():
         raise NotADirectoryError(f"{data_dir} is not a valid directory")
-    logger.info("Data directory: %s", data_dir.resolve())
+
+    output_dir = Path(output_path) if output_path else data_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(
+        "Input directory: %s | Output directory: %s",
+        data_dir.resolve(),
+        output_dir.resolve(),
+    )
 
     # ---- Load tables (only the columns we need) ----
     admissions = load_table(data_dir, "ADMISSIONS")
@@ -330,8 +346,8 @@ def main(data_path: str) -> None:
         eth = split_df[ETH_COLS].values.astype(np.float32)
         labels = split_df[LABEL_COL].values.astype(np.float32)
 
-        sparse.save_npz(data_dir / f"{name}_tfidf.npz", tfidf_matrix)
-        np.savez(data_dir / f"{name}_meta.npz", eth=eth, labels=labels)
+        sparse.save_npz(output_dir / f"{name}_tfidf.npz", tfidf_matrix)
+        np.savez(output_dir / f"{name}_meta.npz", eth=eth, labels=labels)
 
         n_pos = int(labels.sum())
         logger.info(
@@ -340,21 +356,19 @@ def main(data_path: str) -> None:
         )
 
     # ---- Save fitted vectorizer for inference ----
-    vec_path = data_dir / "tfidf_vectorizer.pkl"
+    vec_path = output_dir / "tfidf_vectorizer.pkl"
     with open(vec_path, "wb") as f:
         pickle.dump(vectorizer, f)
     logger.info("Saved TF-IDF vectorizer to %s", vec_path)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Preprocess MIMIC-III CSV data for mortality prediction.",
+    raw_data_path = (
+        "/home/xuanhe_linux_001/probe_mimic_mortality/data/realistic_data/ICU/"
+        "mimic-iii-clinical-database-1.4/mimic-iii-clinical-database-1.4"
     )
-    parser.add_argument(
-        "--data_path",
-        type=str,
-        required=True,
-        help="Path to directory containing MIMIC-III CSV (or .csv.gz) files",
+    processed_output_path = (
+        "/home/xuanhe_linux_001/aim_frontend_experiment3/aim/examples/"
+        "agent_example_repos/mimic/data"
     )
-    args = parser.parse_args()
-    main(args.data_path)
+    main(raw_data_path, processed_output_path)
