@@ -5,7 +5,7 @@ import json
 import shutil
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import websockets
 
@@ -51,7 +51,13 @@ WEBSOCKET_ADDRESS = f'ws://localhost:{AIM_UI_DEFAULT_PORT}/api/agent/ws'
 
 
 class AimResearchAgent:
-    def __init__(self, run: Run, repo_path: str):
+    def __init__(
+        self,
+        run: Run,
+        repo_path: str,
+        loop_hook_command: Sequence[str] | None = None,
+        will_recover_after_a_loop: bool = False,
+    ):
         self.run = run
         self.repo_path = repo_path
         self.state = AGENT_STATE_INIT
@@ -70,6 +76,9 @@ class AimResearchAgent:
         self._cur_prober_result_metrics: dict[str, list[dict]] = {}
         self._cur_test_result_images: list[dict] = []
         self._cur_prober_result_images: list[dict] = []
+        self._loop_hook_command = list(loop_hook_command) if loop_hook_command else None
+        self._will_recover_after_a_loop = will_recover_after_a_loop
+        self._train_script_backup: str | None = None
 
     def _resolve_repo_file_path(self, input_path: str, default_path: str) -> Path:
         if not input_path:
@@ -292,12 +301,40 @@ class AimResearchAgent:
         )
         return eval_result, prober_result
 
+    def _train_script_path(self) -> Path:
+        """Absolute path to the train.py script inside the training repo."""
+        return Path(self.repo_path) / 'train.py'
+
+    def _ensure_train_script_backup(self):
+        if self._train_script_backup is not None:
+            return
+        try:
+            self._train_script_backup = self._train_script_path().read_text(encoding='utf-8')
+        except FileNotFoundError:
+            self._train_script_backup = None
+            print('[react_loop] Warning: train.py not found; cannot create recovery snapshot.')
+
+    def _recover_train_script_if_requested(self):
+        if not self._will_recover_after_a_loop:
+            return
+        if self._train_script_backup is None:
+            self._ensure_train_script_backup()
+            if self._train_script_backup is None:
+                return
+        try:
+            self._train_script_path().write_text(self._train_script_backup, encoding='utf-8')
+            print('[react_loop] train.py recovered from snapshot.')
+        except OSError as exc:
+            print(f'[react_loop] Failed to recover train.py: {exc}')
+
     async def _run_react_loop(self, num_iterations: int):
         self._react_loop_session_id = None
         history_path = self._prober_results_dir / 'history.md'
         history_path.parent.mkdir(parents=True, exist_ok=True)
         if history_path.exists():
             history_path.unlink()
+        if self._will_recover_after_a_loop:
+            self._ensure_train_script_backup()
 
         for i in range(num_iterations):
             print(f'[react_loop] Optimization round {i}')
@@ -332,16 +369,29 @@ class AimResearchAgent:
                 )
                 if session_id:
                     self._react_loop_session_id = session_id
+            self._recover_train_script_if_requested()
 
-        # Final training run to show results after all optimizations
-        print('[react_loop] Running final training to show optimized results')
-        self._reset_iteration_results()
-        self.state = AGENT_STATE_TRAINING
-        await self._run_training()
-        self._snapshot_round_images(num_iterations)
-        eval_result, prober_result = self._build_eval_and_prober_strings()
-        self._save_round_prober_results(num_iterations)
-        print(f'[react_loop] Final results saved as round {num_iterations}')
+        # Recovery/evaluation runs without Codex guidance
+        RECOVERY_RUNS = 3
+        previous_recover_flag = self._will_recover_after_a_loop
+        if not self._will_recover_after_a_loop:
+            self._will_recover_after_a_loop = True
+            self._ensure_train_script_backup()
+        self._recover_train_script_if_requested()
+
+        for extra_idx in range(RECOVERY_RUNS):
+            round_idx = num_iterations + extra_idx
+            print(f'[react_loop] Recovery training round {round_idx}')
+            self._reset_iteration_results()
+            self.state = AGENT_STATE_TRAINING
+            await self._run_training()
+            self.state = AGENT_STATE_REFLECTING
+            self._snapshot_round_images(round_idx)
+            eval_result, prober_result = self._build_eval_and_prober_strings()
+            self._save_round_prober_results(round_idx)
+
+        if not previous_recover_flag:
+            self._will_recover_after_a_loop = previous_recover_flag
 
         self.state = AGENT_STATE_READY_TO_TRAIN
 
