@@ -109,7 +109,28 @@ class AimResearchAgent:
             cmd = ['codex', 'exec', 'resume', session_id, '--json', prompt]
         else:
             cmd = ['codex', 'exec', '--json', prompt]
+        # xh debug
+        xh_debug = True
+        if xh_debug:
+            import os, subprocess
+            print("[agent] cwd:", self.repo_path)
+            print("[agent] uid/gid:", os.getuid(), os.getgid())
+            print("[agent] HOME:", os.environ.get("HOME"))
+            print("[agent] which codex:", shutil.which("codex"))
+            try:
+                out = subprocess.check_output(["bash","-lc","type -a codex; which codex; readlink -f $(which codex) || true; codex --version || true"], cwd=self.repo_path)
+                print(out.decode())
+            except Exception as e:
+                print("[agent] codex inspect failed:", e)
 
+            # also do a direct write test from the agent process
+            try:
+                Path(self.repo_path, ".__agent_write_test").write_text("ok", encoding="utf-8")
+                Path(self.repo_path, ".__agent_write_test").unlink()
+                print("[agent] write_test: OK")
+            except Exception as e:
+                print("[agent] write_test: FAIL", e)
+        # end of xh debug
         process = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=self.repo_path,
@@ -371,7 +392,7 @@ class AimResearchAgent:
                     self._react_loop_session_id = session_id
             self._recover_train_script_if_requested()
 
-        # Recovery/evaluation runs without Codex guidance
+        # Recovery/evaluation runs without Codex guidance XHP
         RECOVERY_RUNS = 3
         previous_recover_flag = self._will_recover_after_a_loop
         if not self._will_recover_after_a_loop:
