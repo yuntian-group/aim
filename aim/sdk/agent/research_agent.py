@@ -393,7 +393,7 @@ class AimResearchAgent:
             self._recover_train_script_if_requested()
 
         # Recovery/evaluation runs without Codex guidance XHP
-        RECOVERY_RUNS = 3
+        RECOVERY_RUNS = 1
         previous_recover_flag = self._will_recover_after_a_loop
         if not self._will_recover_after_a_loop:
             self._will_recover_after_a_loop = True

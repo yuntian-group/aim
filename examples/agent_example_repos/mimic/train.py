@@ -18,6 +18,7 @@ import torch.nn as nn
 
 from aim.sdk.agent.research_agent_logger import AGENT_LOG_TEST_PREFIX, ResearchAgentLogger
 from dataset import MIMICMortalityDataset
+from prober import CounterfactualProberConfig, EthnicityCounterfactualProber
 from sklearn.metrics import f1_score, roc_auc_score
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -36,6 +37,10 @@ BATCH_SIZE = 256
 LEARNING_RATE = 2
 NUM_EPOCHS = 50
 SEED = 42
+
+# Penalty applied to the ethnicity feature weights to discourage
+# counterfactual sensitivity without removing the features entirely.
+ETH_WEIGHT_PENALTY = 0.02
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_DATA_DIR = SCRIPT_DIR / 'data'
@@ -78,6 +83,8 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     criterion: nn.Module,
     device: torch.device,
+    eth_start_idx: int,
+    eth_weight_penalty: float,
 ) -> float:
     model.train()
     running_loss = 0.0
@@ -87,6 +94,11 @@ def train_one_epoch(
 
         logits = model(features)
         loss = criterion(logits, labels)
+
+        if eth_weight_penalty > 0 and hasattr(model, 'linear'):
+            eth_weights = model.linear.weight[:, eth_start_idx:]
+            if eth_weights.numel() > 0:
+                loss = loss + eth_weight_penalty * eth_weights.pow(2).sum()
 
         optimizer.zero_grad()
         loss.backward()
@@ -152,7 +164,9 @@ def main(data_dir: str) -> None:
     pos_weight = torch.tensor(n_neg / n_pos, dtype=torch.float32, device=device)
 
     # ---- Model, loss, optimizer ----
+    tfidf_dim = train_ds.tfidf.shape[1]
     input_dim = train_ds[0]['features'].shape[0]
+    eth_start_idx = tfidf_dim if train_ds.use_eth else input_dim
     model = LogisticRegression(input_dim).to(device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE)
@@ -164,7 +178,15 @@ def main(data_dir: str) -> None:
     # ---- Training loop ----
     best_auroc = 0.0
     for epoch in range(1, NUM_EPOCHS + 1):
-        train_loss = train_one_epoch(model, train_loader, optimizer, criterion, device)
+        train_loss = train_one_epoch(
+            model,
+            train_loader,
+            optimizer,
+            criterion,
+            device,
+            eth_start_idx,
+            ETH_WEIGHT_PENALTY,
+        )
         val_metrics = evaluate(model, val_loader, criterion, device)
         agent_logger.log('train_loss', train_loss, step=None, epoch=epoch)
         agent_logger.log('val_loss', val_metrics['loss'], step=None, epoch=epoch)
@@ -187,6 +209,19 @@ def main(data_dir: str) -> None:
     test_metrics = evaluate(model, test_loader, criterion, device)
     for key, value in test_metrics.items():
         agent_logger.log(AGENT_LOG_TEST_PREFIX + key, value, step=None, epoch=None)
+
+    prober = EthnicityCounterfactualProber(
+        model_factory=lambda: LogisticRegression(input_dim),
+        agent_logger=agent_logger,
+        config=CounterfactualProberConfig(
+            data_dir=data_path,
+            ckpt_path=ckpt_path,
+            batch_size=BATCH_SIZE,
+            device=device,
+        ),
+        eth_names=ETH_NAMES,
+    )
+    prober.run()
 
     logger.info('Done. Best val AUROC: %.4f | Test AUROC: %.4f', best_auroc, test_metrics['auroc'])
 
