@@ -7,7 +7,12 @@ problem of a trained model. The prober is will be a class or function that gener
 metrics, charts or figures that indicate the problem given the trained model and \
 test dataset in `prober.py`. 
 
-You may refer to `.codex/prober_design_idea.md` for the guidance of generating prober.
+You may refer to `.codex/prober_design_idea.md` for the guidance of prober.\
+if it said [iteration mode] performance probe, then we are using a simple performance probe\
+that only reflect the performance of the train.py with metrics like AUROC or loss.\
+you must identify 10 places in train.py that need to be improved and mark them with comment\
+potential_change_1, potential_change_2, ..., potential_change_10.\
+then you must remember this, everytime you can only modify up to 2 potential_change.
 
 # Current Model Prober Result
 
@@ -19,7 +24,7 @@ You may refer to `.codex/prober_design_idea.md` for the guidance of generating p
 
 # Instruction
 
-- Read the training code and prober in `prober.py`, understand the model problem \
+- Read the 'train.py' and 'prober.py', understand the model problem \
 it cares about.
 - Examine the prober figures listed above to understand the visual diagnostics.
 - Make update to the model to alleviate the problem while maintain the model \

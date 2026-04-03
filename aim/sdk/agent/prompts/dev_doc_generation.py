@@ -11,13 +11,16 @@ your prober must includes such factors: the conclusion of your evalutation must 
 and you should states clearly how it get computed. \
 also, you should give a threshold of this numerical result to indicate is this result good or bad for \
 probing our model. And you should use figures to clearly visualize this result. and all these \
-(threshold, numerical result)will be called together as prober conclusion or just result in after context.
+(threshold, numerical result) will be called together as prober conclusion or just result in after context.
 
 
 # Instructions
 
 - Read the prober design idea in `.codex/prober_design_idea.md`, give **3** possible \
 different design plan of the given prober design idea.
+- if in `.codex/prober_design_idea.md` says 'iterate all 10 hypothesis', \
+    you will find the all 10 hypothesis in  .codex/all_generated_probe.md\
+    and in this case you just return 3 dev plans for the first hypothesis. 
 
 
 # Requirement 

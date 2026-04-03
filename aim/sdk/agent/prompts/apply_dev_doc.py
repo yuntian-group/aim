@@ -5,7 +5,7 @@ training repo.
 A prober is one or some evaluation protocol or metrics that may indicate the a \
 problem of a trained model. The prober will be a class or function that generate \
 metrics, charts and figures that indicate the problem given the trained model and \
-eval dataset.
+eval dataset. you must ensure the integrety of these feature mentioned above. 
 
 # Instruction
 
@@ -21,11 +21,13 @@ and called after training during evaluation phase.
 `aim.sdk.agent.research_agent_logger`.
 - Make sure the result metrics from test result has the name starts with `agent_log_test_`.
 - Make sure the result figures from prober has the name starts with `agent_log_prober_ and clearly visualize the evaluation`.
+- as long as your figure and metric have the above name format and get logged by aim.sdk.agent.research_agent_logger, they will be well stored and recorded. 
 - Make sure you fully reuse the existing components of existing code.
 - Make your implementation as efficient as possible.
 - Make sure you apply the best software engieering pratice.
 - Make sure you make minimum change to the code.
 - Make sure you the modified training repo is easy to understand.
+- For figures and charts, you should keep axis range fixed across all the time. Result of prober.py, figures, and threshold must presented and well stored.
 
 Now start generate\
 """

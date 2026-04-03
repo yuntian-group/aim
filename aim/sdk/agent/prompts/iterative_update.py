@@ -6,6 +6,15 @@ You are continuing to optimize the model to improve the prober metrics. You have
 working on this model across multiple rounds within this same session — refer to \
 the earlier conversation for the full history of changes and results.
 
+You may refer to `.codex/prober_design_idea.md` for the guidance of prober.\
+if it said [iteration mode] performance probe, then we are using a simple performance probe\
+that only reflect the performance of the train.py with metrics like AUROC or loss.\
+you must identify 10 places in train.py that need to be improved for better training quality and mark them with comment\
+potential_change_1, potential_change_2, ..., potential_change_10.\
+then you must remember this, everytime you can only modify up to 1 potential_change.
+inspect {round_number}, if this is round 10, then you may ignore all limit and try improve train.py\
+as much as possible
+
 # Current Round {round_number} — Prober Result
 
 {prober_result}

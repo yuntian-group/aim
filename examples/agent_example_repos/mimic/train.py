@@ -18,7 +18,11 @@ import torch.nn as nn
 
 from aim.sdk.agent.research_agent_logger import AGENT_LOG_TEST_PREFIX, ResearchAgentLogger
 from dataset import MIMICMortalityDataset
-from prober import CounterfactualProberConfig, EthnicityCounterfactualProber
+from prober import (
+    CounterfactualProberConfig,
+    EthnicityCounterfactualProber,
+    ValidationAUROCThresholdProber,
+)
 from sklearn.metrics import f1_score, roc_auc_score
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -38,9 +42,11 @@ LEARNING_RATE = 2
 NUM_EPOCHS = 50
 SEED = 42
 
-# Penalty applied to the ethnicity feature weights to discourage
-# counterfactual sensitivity without removing the features entirely.
-ETH_WEIGHT_PENALTY = 0.02
+# L2 penalty keeps ethnicity weights numerically stable.
+ETH_WEIGHT_L2_PENALTY = 0.02
+# Spread penalty shrinks differences between ethnicity weights, which
+# directly reduces counterfactual sensitivity under one-hot swaps.
+ETH_WEIGHT_SPREAD_PENALTY = 0.10
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_DATA_DIR = SCRIPT_DIR / 'data'
@@ -84,7 +90,8 @@ def train_one_epoch(
     criterion: nn.Module,
     device: torch.device,
     eth_start_idx: int,
-    eth_weight_penalty: float,
+    eth_weight_l2_penalty: float,
+    eth_weight_spread_penalty: float,
 ) -> float:
     model.train()
     running_loss = 0.0
@@ -95,10 +102,14 @@ def train_one_epoch(
         logits = model(features)
         loss = criterion(logits, labels)
 
-        if eth_weight_penalty > 0 and hasattr(model, 'linear'):
+        if hasattr(model, 'linear'):
             eth_weights = model.linear.weight[:, eth_start_idx:]
             if eth_weights.numel() > 0:
-                loss = loss + eth_weight_penalty * eth_weights.pow(2).sum()
+                if eth_weight_l2_penalty > 0:
+                    loss = loss + eth_weight_l2_penalty * eth_weights.pow(2).sum()
+                if eth_weight_spread_penalty > 0:
+                    centered_eth_weights = eth_weights - eth_weights.mean(dim=1, keepdim=True)
+                    loss = loss + eth_weight_spread_penalty * centered_eth_weights.pow(2).sum()
 
         optimizer.zero_grad()
         loss.backward()
@@ -185,7 +196,8 @@ def main(data_dir: str) -> None:
             criterion,
             device,
             eth_start_idx,
-            ETH_WEIGHT_PENALTY,
+            ETH_WEIGHT_L2_PENALTY,
+            ETH_WEIGHT_SPREAD_PENALTY,
         )
         val_metrics = evaluate(model, val_loader, criterion, device)
         agent_logger.log('train_loss', train_loss, step=None, epoch=epoch)
@@ -193,6 +205,7 @@ def main(data_dir: str) -> None:
         agent_logger.log('val_auroc', val_metrics['auroc'], step=None, epoch=epoch)
         agent_logger.log('val_f1', val_metrics['f1'], step=None, epoch=epoch)
         agent_logger.log('val_acc', val_metrics['acc'], step=None, epoch=epoch)
+        agent_logger.log(AGENT_LOG_TEST_PREFIX + 'val_auroc', val_metrics['auroc'], step=None, epoch=epoch)
         if val_metrics['auroc'] > best_auroc:
             best_auroc = val_metrics['auroc']
             torch.save(model.state_dict(), ckpt_path)
@@ -209,6 +222,17 @@ def main(data_dir: str) -> None:
     test_metrics = evaluate(model, test_loader, criterion, device)
     for key, value in test_metrics.items():
         agent_logger.log(AGENT_LOG_TEST_PREFIX + key, value, step=None, epoch=None)
+
+    plateau_prober = ValidationAUROCThresholdProber(
+        model=model,
+        val_loader=val_loader,
+        criterion=criterion,
+        device=device,
+        agent_logger=agent_logger,
+        evaluate_fn=evaluate,
+        history_path=CKPT_DIR / 'val_auroc_history.json',
+    )
+    plateau_prober.run()
 
     prober = EthnicityCounterfactualProber(
         model_factory=lambda: LogisticRegression(input_dim),

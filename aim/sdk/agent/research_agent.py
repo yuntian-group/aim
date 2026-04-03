@@ -50,6 +50,9 @@ from aim.web.configs import AIM_UI_DEFAULT_PORT
 WEBSOCKET_ADDRESS = f'ws://localhost:{AIM_UI_DEFAULT_PORT}/api/agent/ws'
 
 
+will_iterate_all_probes = False
+
+
 class AimResearchAgent:
     def __init__(
         self,
@@ -326,27 +329,21 @@ class AimResearchAgent:
         """Absolute path to the train.py script inside the training repo."""
         return Path(self.repo_path) / 'train.py'
 
-    def _ensure_train_script_backup(self):
-        if self._train_script_backup is not None:
+    def _snapshot_train_script(self, round_number: int):
+        """Save the current train.py to train_version_<round>.py."""
+        src = self._train_script_path()
+        if not src.exists():
+            print('[react_loop] train.py not found, skip snapshot')
             return
+        dest_dir = src.parent / 'legacy_train'
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / f'train_version_{round_number}.py'
         try:
-            self._train_script_backup = self._train_script_path().read_text(encoding='utf-8')
-        except FileNotFoundError:
-            self._train_script_backup = None
-            print('[react_loop] Warning: train.py not found; cannot create recovery snapshot.')
-
-    def _recover_train_script_if_requested(self):
-        if not self._will_recover_after_a_loop:
-            return
-        if self._train_script_backup is None:
-            self._ensure_train_script_backup()
-            if self._train_script_backup is None:
-                return
-        try:
-            self._train_script_path().write_text(self._train_script_backup, encoding='utf-8')
-            print('[react_loop] train.py recovered from snapshot.')
+            shutil.copy2(src, dest)
+            print(f'[react_loop] Saved {dest.name}')
         except OSError as exc:
-            print(f'[react_loop] Failed to recover train.py: {exc}')
+            print(f'[react_loop] Failed to snapshot train.py: {exc}')
+
 
     async def _run_react_loop(self, num_iterations: int):
         self._react_loop_session_id = None
@@ -355,7 +352,7 @@ class AimResearchAgent:
         if history_path.exists():
             history_path.unlink()
         if self._will_recover_after_a_loop:
-            self._ensure_train_script_backup()
+            pass
 
         for i in range(num_iterations):
             print(f'[react_loop] Optimization round {i}')
@@ -390,30 +387,7 @@ class AimResearchAgent:
                 )
                 if session_id:
                     self._react_loop_session_id = session_id
-            self._recover_train_script_if_requested()
-
-        # Recovery/evaluation runs without Codex guidance XHP
-        RECOVERY_RUNS = 1
-        previous_recover_flag = self._will_recover_after_a_loop
-        if not self._will_recover_after_a_loop:
-            self._will_recover_after_a_loop = True
-            self._ensure_train_script_backup()
-        self._recover_train_script_if_requested()
-
-        for extra_idx in range(RECOVERY_RUNS):
-            round_idx = num_iterations + extra_idx
-            print(f'[react_loop] Recovery training round {round_idx}')
-            self._reset_iteration_results()
-            self.state = AGENT_STATE_TRAINING
-            await self._run_training()
-            self.state = AGENT_STATE_REFLECTING
-            self._snapshot_round_images(round_idx)
-            eval_result, prober_result = self._build_eval_and_prober_strings()
-            self._save_round_prober_results(round_idx)
-
-        if not previous_recover_flag:
-            self._will_recover_after_a_loop = previous_recover_flag
-
+            self._snapshot_train_script(i + 1)
         self.state = AGENT_STATE_READY_TO_TRAIN
 
     @staticmethod
@@ -482,6 +456,7 @@ class AimResearchAgent:
 
     async def _handle_command(self, cmd_id: str, data: dict) -> Any:
         cmd_type = data.get('type', '')
+        global will_iterate_all_probes
 
         if cmd_type == COMMAND_TYPE_UPDATE_CONTEXT_INFO and self.state == AGENT_STATE_CONTEXT_COLLECTING:
             context_info = data.get('payload') or data.get('context_info') or data.get('content') or data.get('text')
@@ -509,6 +484,12 @@ class AimResearchAgent:
             raw_response, _ = await self.codex_exec(codex_prompt)
             self._all_hypotheses = self._parse_hypothesis_info(raw_response)
 
+            # xh newly added, save all probe here
+            self._write_text_file(
+                Path(self.repo_path) / '.codex/all_generated_probe.md', json.dumps(self._all_hypotheses, indent=2)
+            )
+            self._all_hypotheses.append('iterate all 10 hypothesis') #add this as option
+            will_iterate_all_probes = False
             self.state = AGENT_STATE_HYPOTHESIS_SELECTION
             return json.dumps(self._all_hypotheses)
 
@@ -518,6 +499,7 @@ class AimResearchAgent:
             selected_hypothesis_index = int(selection_info) if selection_info else 0
 
             selected_hypothesis = self._all_hypotheses[selected_hypothesis_index]
+            will_iterate_all_probes = selected_hypothesis == 'iterate all 10 hypothesis'
             hypothesis_md = self._format_probe_design_as_markdown(selected_hypothesis)
 
             hypothesis_path = Path(self.repo_path) / '.codex/prober_design_idea.md'
