@@ -1,0 +1,28 @@
+.Live {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: #f7f8fa;
+
+  &__header {
+    padding: 16px 24px 12px;
+    border-bottom: 1px solid #e8eaed;
+    background: #fff;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: #1c2024;
+  }
+
+  &__subtitle {
+    display: block;
+    margin-top: 4px;
+    font-size: 13px;
+    color: #6b7280;
+  }
+}

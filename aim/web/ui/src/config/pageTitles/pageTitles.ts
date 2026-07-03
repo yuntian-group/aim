@@ -16,6 +16,7 @@ const pageTitles = {
   METRICS_EXPLORER_V2: 'Metrics Explorer v2',
   REPORTS: 'Reports',
   REPORT: 'Report',
+  LIVE: 'Interactive Training',
 };
 
 export default pageTitles;

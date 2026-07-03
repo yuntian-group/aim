@@ -1,0 +1,192 @@
+.HyperparamsPanel {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+
+  &__knobs {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  &__other {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid #f0f2f4;
+
+    h4 {
+      margin: 0 0 8px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #9aa1a9;
+    }
+  }
+
+  &__otherList {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  &__footer {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    gap: 8px;
+    margin-top: auto;
+    padding: 12px 0 4px;
+    background: linear-gradient(to top, #fff 70%, rgba(255, 255, 255, 0));
+  }
+}
+
+.Knob {
+  padding: 10px 12px;
+  border: 1px solid #eef0f2;
+  border-radius: 8px;
+  background: #fbfcfd;
+
+  &.is-queued {
+    border-color: #c9d6ef;
+    background: #f4f7fd;
+  }
+  &.is-failed {
+    border-color: #f0c4bd;
+    background: #fdf1ef;
+  }
+
+  &__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  &__name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1c2024;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  &__info {
+    color: #9aa1a9;
+    font-size: 11px;
+    cursor: help;
+  }
+
+  &__chip {
+    margin-left: auto;
+    font-size: 11px;
+    color: #1651c4;
+    font-style: italic;
+
+    &--dirty {
+      color: #9a6700;
+      font-style: normal;
+    }
+  }
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  &__slider {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__input {
+    width: 110px;
+    padding: 5px 8px;
+    border: 1px solid #d6dae0;
+    border-radius: 6px;
+    font-size: 13px;
+
+    &--full {
+      width: 100%;
+    }
+  }
+
+  &__switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #4b5563;
+    cursor: pointer;
+  }
+
+  &__error {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #c0392b;
+  }
+}
+
+.GenericAction {
+  position: relative;
+
+  &__btn {
+    padding: 5px 10px;
+    font-size: 12px;
+    border: 1px solid #d6dae0;
+    background: #fff;
+    border-radius: 6px;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      background: #f0f2f4;
+    }
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+
+  &__form {
+    position: absolute;
+    z-index: 10;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 200px;
+    padding: 10px;
+    background: #fff;
+    border: 1px solid #e0e4e8;
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(28, 32, 36, 0.12);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  &__field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 12px;
+    color: #6b7280;
+
+    input {
+      padding: 5px 8px;
+      border: 1px solid #d6dae0;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+  }
+
+  &__submit {
+    align-self: flex-end;
+    padding: 5px 12px;
+    font-size: 12px;
+    background: #1651c4;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+}

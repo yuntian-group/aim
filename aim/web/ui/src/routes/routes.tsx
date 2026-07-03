@@ -61,6 +61,10 @@ const Reports = React.lazy(
   () => import(/* webpackChunkName: "Reports" */ 'pages/Reports'),
 );
 
+const Live = React.lazy(
+  () => import(/* webpackChunkName: "live" */ 'pages/Live/LiveContainer'),
+);
+
 const Report = React.lazy(
   () => import(/* webpackChunkName: "Report" */ 'pages/Report/Report'),
 );
@@ -242,6 +246,15 @@ const routes: { [key: string]: any } = {
     icon: 'reports',
     isExact: true,
     title: pageTitlesEnum.REPORTS,
+  },
+  LIVE: {
+    path: PathEnum.Live,
+    component: Live,
+    showInSidebar: true,
+    displayName: 'Live',
+    icon: 'runs',
+    isExact: true,
+    title: pageTitlesEnum.LIVE,
   },
   REPORT: {
     path: PathEnum.Report,

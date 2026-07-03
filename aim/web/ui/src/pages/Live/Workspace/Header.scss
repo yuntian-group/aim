@@ -1,0 +1,123 @@
+.LiveHeader {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  background: #fff;
+  border-bottom: 1px solid #e8eaed;
+  flex-wrap: wrap;
+
+  &__back {
+    border: none;
+    background: transparent;
+    color: #4b5563;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+
+    &:hover {
+      background: #f0f2f4;
+    }
+  }
+
+  &__ident {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  &__exp {
+    font-size: 15px;
+    font-weight: 600;
+    color: #1c2024;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__facts {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    color: #4b5563;
+  }
+
+  &__actions {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+    flex-wrap: wrap;
+  }
+
+  &__conn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 500;
+
+    &--ok {
+      color: #1a7f37;
+    }
+    &--warn {
+      color: #9a6700;
+    }
+    &--err {
+      color: #c0392b;
+    }
+  }
+
+  &__connDot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+}
+
+.LiveBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+
+  &__icon {
+    display: inline-flex;
+    align-items: center;
+  }
+  border: 1px solid #d6dae0;
+  background: #fff;
+  color: #1c2024;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+
+  &:hover:not(:disabled) {
+    background: #f0f2f4;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  &--primary {
+    background: #1a7f37;
+    border-color: #1a7f37;
+    color: #fff;
+
+    &:hover:not(:disabled) {
+      background: #16702f;
+    }
+  }
+
+  &--toggle.is-on {
+    background: #e6f4ea;
+    border-color: #1a7f37;
+    color: #1a7f37;
+  }
+}

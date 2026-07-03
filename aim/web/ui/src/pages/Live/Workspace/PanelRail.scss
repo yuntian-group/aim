@@ -1,0 +1,164 @@
+.PanelRail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 320px;
+  min-width: 280px;
+  max-width: 480px;
+  resize: horizontal;
+  overflow: hidden;
+  border-right: 1px solid #e8eaed;
+  background: #fff;
+
+  // Horizontal tab strip on top, so the panel switcher doesn't visually
+  // compete with the app's primary left sidebar.
+  &__tabs {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    padding: 6px 8px 0;
+    border-bottom: 1px solid #eef0f2;
+    background: #fff;
+  }
+
+  // Inactive tabs are icon-only; the active tab expands to show its label.
+  // This keeps all five tabs visible even at the panel's minimum width.
+  &__tab {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    height: 34px;
+    padding: 0 10px;
+    border: none;
+    background: transparent;
+    border-radius: 6px 6px 0 0;
+    cursor: pointer;
+    color: #6b7280;
+    font-size: 12px;
+
+    &:hover {
+      background: #f0f2f4;
+      color: #1c2024;
+    }
+
+    // Bottom accent bar marks the active panel — a secondary-nav cue,
+    // distinct from the primary app sidebar's full-item highlight.
+    &.is-active {
+      flex-shrink: 1;
+      min-width: 0;
+      color: #1651c4;
+      font-weight: 600;
+
+      &::after {
+        content: '';
+        position: absolute;
+        left: 4px;
+        right: 4px;
+        bottom: 0;
+        height: 3px;
+        border-radius: 3px 3px 0 0;
+        background: #1651c4;
+      }
+    }
+  }
+
+  &__label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__glyph {
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  &__badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 3px;
+    border-radius: 999px;
+    background: #1651c4;
+    color: #fff;
+    font-size: 10px;
+    line-height: 15px;
+    text-align: center;
+
+    &.is-error {
+      background: #c0392b;
+    }
+
+    &--pulse {
+      min-width: 9px;
+      width: 9px;
+      height: 9px;
+      padding: 0;
+      background: #1a7f37;
+      animation: panelPulse 1.4s ease-in-out infinite;
+    }
+  }
+
+  &__body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 14px;
+    background: #fff;
+  }
+}
+
+@keyframes panelPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.LivePanel {
+  &__title {
+    margin: 0 0 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1c2024;
+  }
+
+  &__hint {
+    font-size: 13px;
+    line-height: 1.5;
+    color: #6b7280;
+  }
+
+  &__facts {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  &__fact {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+    padding: 4px 0;
+    border-bottom: 1px solid #f0f2f4;
+
+    span:first-child {
+      color: #6b7280;
+    }
+    span:last-child {
+      color: #1c2024;
+      font-weight: 500;
+      text-align: right;
+      word-break: break-all;
+    }
+  }
+}

@@ -1,0 +1,110 @@
+.LiveCharts {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+
+  &__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 16px;
+  }
+
+  &__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #9aa1a9;
+    font-size: 14px;
+  }
+
+  &__picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+    font-size: 12px;
+    color: #6b7280;
+
+    button {
+      padding: 3px 9px;
+      border: 1px dashed #c2c8cf;
+      background: #fff;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+
+      &:hover {
+        border-style: solid;
+        background: #f0f2f4;
+      }
+    }
+  }
+}
+
+.MiniChart {
+  background: #fff;
+  border: 1px solid #e8eaed;
+  border-radius: 10px;
+  padding: 10px 12px;
+
+  &--empty {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 120px;
+    justify-content: center;
+    align-items: center;
+  }
+
+  &__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 4px;
+  }
+
+  &__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1c2024;
+  }
+
+  &__last {
+    font-size: 12px;
+    color: #4b5563;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__empty {
+    font-size: 12px;
+    color: #9aa1a9;
+  }
+
+  &__axis {
+    font-size: 9px;
+    fill: #9aa1a9;
+  }
+
+  &__marker {
+    stroke: #c9ccd1;
+    stroke-width: 1;
+    stroke-dasharray: 3 2;
+
+    &--knob_changed {
+      stroke: #1651c4;
+    }
+    &--note {
+      stroke: #9a6700;
+    }
+    &--checkpoint_saved,
+    &--checkpoint_loaded {
+      stroke: #1a7f37;
+    }
+    &--evaluate_requested {
+      stroke: #8b2fc9;
+    }
+  }
+}
