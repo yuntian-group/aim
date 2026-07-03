@@ -3,6 +3,11 @@
 // Strategy: connect the WS bridge with `since=lastSeq+1`; dedupe by `seq`; reconnect
 // with exponential backoff (1s -> 10s). While the WS is closed, fall back to polling
 // `GET /events?since=` every 2s. A proxy 502 means the session ended (archive mode).
+//
+// Incoming WS frames are buffered and flushed to `onEvents` once per animation frame:
+// the trainer replays missed events one frame each on (re)connect, and React 17 does
+// not batch setState outside its own event handlers, so ingesting per-frame would
+// trigger a full re-render per historical event.
 
 import React from 'react';
 
@@ -44,6 +49,8 @@ export default function useLiveEvents(
     let reconnectTimer: number | undefined;
     let pollTimer: number | undefined;
     let pollReq: IApiRequest<{ events: IControlEvent[] }> | null = null;
+    let wsBuffer: IControlEvent[] = [];
+    let flushFrame: number | undefined;
 
     lastSeqRef.current = -1;
 
@@ -58,6 +65,23 @@ export default function useLiveEvents(
         }
       });
       onEventsRef.current(fresh);
+    };
+
+    const flushWsBuffer = () => {
+      flushFrame = undefined;
+      if (disposed || wsBuffer.length === 0) {
+        return;
+      }
+      const batch = wsBuffer;
+      wsBuffer = [];
+      ingest(batch);
+    };
+
+    const enqueueWsEvent = (event: IControlEvent) => {
+      wsBuffer.push(event);
+      if (flushFrame === undefined) {
+        flushFrame = window.requestAnimationFrame(flushWsBuffer);
+      }
     };
 
     const startPolling = () => {
@@ -135,7 +159,7 @@ export default function useLiveEvents(
       ws.onmessage = (msg: MessageEvent) => {
         try {
           const event: IControlEvent = JSON.parse(msg.data);
-          ingest([event]);
+          enqueueWsEvent(event);
         } catch (e) {
           /* ignore malformed frame */
         }
@@ -165,6 +189,9 @@ export default function useLiveEvents(
       disposed = true;
       if (reconnectTimer !== undefined) {
         window.clearTimeout(reconnectTimer);
+      }
+      if (flushFrame !== undefined) {
+        window.cancelAnimationFrame(flushFrame);
       }
       stopPolling();
       if (ws) {

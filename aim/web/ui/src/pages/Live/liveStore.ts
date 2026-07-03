@@ -1,16 +1,20 @@
 // Per-session data layer (design doc §6.7). A small self-contained hook store:
 //  - `state`     : proxied /state snapshot (initial + fallback poll while WS is down)
 //  - `events`    : capped recent event feed (from useLiveEvents)
-//  - `metrics`   : ring buffers per metric key, fed from `metrics` events
+//  - `metrics`   : ring buffers per metric key, seeded from Aim storage (batch read,
+//                  same endpoint the run detail page uses) and extended by `metrics`
+//                  events from the live stream
 //  - `pending`   : action lifecycle map (§6.5)
 //  - `status`    : live status (state snapshot, updated by status_changed events)
 //
 // All derived data is reduced from the ordered event log with `/state` as the reset
 // snapshot; content between the WS and Aim storage can only differ in recency (§6.7).
+// The history/live seam is closed by deduping points on (metric, branch, step).
 
 import React from 'react';
 
 import liveControlService from 'services/api/liveControl/liveControlService';
+import runsService from 'services/api/runs/runsService';
 
 import {
   IControlAction,
@@ -19,6 +23,7 @@ import {
   ILiveSession,
   LiveStatus,
 } from 'types/services/models/live/live';
+import { IApiRequest } from 'types/services/services';
 
 import useLiveEvents, { ConnectionState } from './useLiveEvents';
 import {
@@ -45,6 +50,7 @@ const STATE_FALLBACK_POLL_MS = 5000;
 export interface ILiveSessionStore {
   state: IControlState | null;
   loadingState: boolean;
+  loadingHistory: boolean;
   stateError: boolean;
   connection: ConnectionState;
   status: LiveStatus;
@@ -64,6 +70,7 @@ const NON_METRIC_KEYS = new Set(['step', 'eval']);
 export function useLiveSession(runHash: string | null): ILiveSessionStore {
   const [state, setState] = React.useState<IControlState | null>(null);
   const [loadingState, setLoadingState] = React.useState<boolean>(true);
+  const [loadingHistory, setLoadingHistory] = React.useState<boolean>(true);
   const [stateError, setStateError] = React.useState<boolean>(false);
   const [status, setStatus] = React.useState<LiveStatus>('idle');
   const [step, setStep] = React.useState<number>(0);
@@ -111,6 +118,114 @@ export function useLiveSession(runHash: string | null): ILiveSessionStore {
     setMetricSeen({});
     refetchState();
   }, [runHash, refetchState]);
+
+  // Merge a `metric/get-batch` response (list of {name, context, iters, values})
+  // into the buffers. Points already delivered by the live stream are skipped via
+  // the shared (metric|branch|step) dedupe keys, and buffers are re-sorted by step
+  // so the "last value" readout stays the most recent point.
+  const seedHistory = React.useCallback((batch: any[]) => {
+    const seen = metricSeenRef.current;
+    const buffers: MetricBuffers = {};
+
+    batch.forEach((trace: any) => {
+      const name = trace?.name;
+      if (!name) {
+        return;
+      }
+      const iters: unknown[] = Array.isArray(trace.iters) ? trace.iters : [];
+      const values: unknown[] = Array.isArray(trace.values) ? trace.values : [];
+      const context = trace.context || {};
+      const branch =
+        typeof context.branch === 'string' ? context.branch : 'main';
+      const isEval = !!context.eval;
+      for (let i = 0; i < iters.length; i++) {
+        const step = iters[i];
+        const value = values[i]; // non-finite values arrive as null; skip them
+        if (typeof step !== 'number' || typeof value !== 'number') {
+          continue;
+        }
+        const dedupeKey = `${name}|${branch}|${step}`;
+        if (seen[dedupeKey]) {
+          continue;
+        }
+        seen[dedupeKey] = true;
+        (buffers[name] = buffers[name] || []).push({
+          step,
+          value,
+          branch,
+          eval: isEval,
+        });
+      }
+    });
+
+    if (Object.keys(buffers).length === 0) {
+      return;
+    }
+    setMetrics((prev) => {
+      const next: MetricBuffers = { ...prev };
+      Object.keys(buffers).forEach((key) => {
+        const merged = (next[key] || []).concat(buffers[key]);
+        merged.sort((a, b) => a.step - b.step);
+        next[key] =
+          merged.length > METRIC_BUFFER_CAP
+            ? merged.slice(merged.length - METRIC_BUFFER_CAP)
+            : merged;
+      });
+      return next;
+    });
+  }, []);
+
+  // Historical metrics: one batch read from Aim storage — the same
+  // `runs/{hash}/info` + `runs/{hash}/metric/get-batch` pair the run detail page
+  // uses — so history renders in a single pass and survives trainer restarts.
+  // The WS stream then only has to carry the live tail.
+  React.useEffect(() => {
+    if (!runHash) {
+      return;
+    }
+    let disposed = false;
+    let batchReq: IApiRequest<any> | null = null;
+    const infoReq: IApiRequest<any> = runsService.getRunInfo(runHash);
+
+    setLoadingHistory(true);
+    infoReq
+      .call()
+      .then((info: any) => {
+        const metricTraces = (info?.traces?.metric || []).filter(
+          (trace: any) => !trace?.name?.startsWith('__system__'),
+        );
+        if (disposed || metricTraces.length === 0) {
+          return null;
+        }
+        batchReq = runsService.getRunMetricsBatch(
+          metricTraces.map((trace: any) => ({
+            name: trace.name,
+            context: trace.context || {},
+          })),
+          runHash,
+        );
+        return batchReq.call();
+      })
+      .then((batch: any) => {
+        if (!disposed && Array.isArray(batch)) {
+          seedHistory(batch);
+        }
+      })
+      .catch(() => {
+        /* history is best-effort; the live stream still works without it */
+      })
+      .finally(() => {
+        if (!disposed) {
+          setLoadingHistory(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+      infoReq.abort();
+      batchReq?.abort();
+    };
+  }, [runHash, seedHistory]);
 
   const handleEvents = React.useCallback((incoming: IControlEvent[]) => {
     if (incoming.length === 0) {
@@ -269,6 +384,7 @@ export function useLiveSession(runHash: string | null): ILiveSessionStore {
   return {
     state,
     loadingState,
+    loadingHistory,
     stateError,
     connection,
     status,

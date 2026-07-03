@@ -6,7 +6,7 @@
 
   &__grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
     gap: 16px;
   }
 
@@ -48,7 +48,7 @@
   background: #fff;
   border: 1px solid #e8eaed;
   border-radius: 10px;
-  padding: 10px 12px;
+  padding: 12px 14px 10px;
 
   &--empty {
     display: flex;
@@ -63,7 +63,8 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    margin-bottom: 4px;
+    gap: 12px;
+    margin-bottom: 8px;
   }
 
   &__title {
@@ -76,6 +77,7 @@
     font-size: 12px;
     color: #4b5563;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
   &__empty {
@@ -83,9 +85,39 @@
     color: #9aa1a9;
   }
 
+  &__plot {
+    display: block;
+    min-height: 190px;
+    overflow: visible;
+  }
+
+  &__plotArea {
+    fill: #fbfcfe;
+    stroke: #eef1f4;
+    stroke-width: 1;
+  }
+
   &__axis {
-    font-size: 9px;
-    fill: #9aa1a9;
+    font-size: 10px;
+    fill: #7b8490;
+    font-variant-numeric: tabular-nums;
+
+    &--x {
+      text-anchor: middle;
+    }
+
+    &--y {
+      text-anchor: end;
+    }
+  }
+
+  &__gridLine {
+    stroke: #e8edf3;
+    stroke-width: 1;
+
+    &--x {
+      stroke-dasharray: 3 4;
+    }
   }
 
   &__marker {

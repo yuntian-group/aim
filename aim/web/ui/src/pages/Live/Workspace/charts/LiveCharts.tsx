@@ -26,6 +26,31 @@ function branchColor(branch: string, branches: string[]): string {
   return BRANCH_COLORS[(idx < 0 ? 0 : idx) % BRANCH_COLORS.length];
 }
 
+function formatTick(value: number): string {
+  const abs = Math.abs(value);
+  if (abs > 0 && (abs < 0.001 || abs >= 10000)) {
+    return value.toExponential(1);
+  }
+  if (abs >= 100) {
+    return value.toFixed(0);
+  }
+  if (abs >= 1) {
+    return value.toFixed(2);
+  }
+  return value.toFixed(4);
+}
+
+function buildTicks(min: number, max: number, count: number): number[] {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || count <= 1) {
+    return [];
+  }
+
+  return Array.from({ length: count }, (_, i) => {
+    const ratio = i / (count - 1);
+    return min + (max - min) * ratio;
+  });
+}
+
 interface IMarker {
   step: number;
   type: string;
@@ -40,9 +65,9 @@ function MiniChart({
   points: IMetricPoint[];
   markers: IMarker[];
 }) {
-  const width = 520;
-  const height = 150;
-  const pad = { l: 44, r: 12, t: 10, b: 22 };
+  const width = 620;
+  const height = 210;
+  const pad = { l: 54, r: 18, t: 12, b: 34 };
   const iw = width - pad.l - pad.r;
   const ih = height - pad.t - pad.b;
 
@@ -61,9 +86,15 @@ function MiniChart({
         brs.push(p.branch);
       }
     });
-    if (y0 === y1) {
-      y0 -= 1;
-      y1 += 1;
+    const ySpan = y1 - y0;
+    if (ySpan === 0) {
+      const delta = Math.abs(y0) * 0.08 || 1;
+      y0 -= delta;
+      y1 += delta;
+    } else {
+      const delta = ySpan * 0.08;
+      y0 -= delta;
+      y1 += delta;
     }
     if (x0 === x1) {
       x1 = x0 + 1;
@@ -83,6 +114,8 @@ function MiniChart({
   const sx = (step: number) => pad.l + ((step - xMin) / (xMax - xMin)) * iw;
   const sy = (value: number) =>
     pad.t + ih - ((value - yMin) / (yMax - yMin)) * ih;
+  const xTicks = buildTicks(xMin, xMax, 4);
+  const yTicks = buildTicks(yMin, yMax, 5);
 
   const byBranch: Record<string, IMetricPoint[]> = {};
   points.forEach((p) => {
@@ -94,21 +127,59 @@ function MiniChart({
       <div className='MiniChart__head'>
         <span className='MiniChart__title'>{title}</span>
         <span className='MiniChart__last'>
-          {points[points.length - 1].value.toFixed(4)}
+          step {points[points.length - 1].step} |{' '}
+          {formatTick(points[points.length - 1].value)}
         </span>
       </div>
       <svg
         width='100%'
         viewBox={`0 0 ${width} ${height}`}
         preserveAspectRatio='none'
+        className='MiniChart__plot'
       >
-        {/* y axis labels */}
-        <text x={4} y={pad.t + 8} className='MiniChart__axis'>
-          {yMax.toFixed(3)}
-        </text>
-        <text x={4} y={pad.t + ih} className='MiniChart__axis'>
-          {yMin.toFixed(3)}
-        </text>
+        <rect
+          x={pad.l}
+          y={pad.t}
+          width={iw}
+          height={ih}
+          className='MiniChart__plotArea'
+        />
+        {yTicks.map((tick) => (
+          <g key={`y-${tick}`}>
+            <line
+              x1={pad.l}
+              x2={pad.l + iw}
+              y1={sy(tick)}
+              y2={sy(tick)}
+              className='MiniChart__gridLine'
+            />
+            <text
+              x={pad.l - 8}
+              y={sy(tick) + 3}
+              className='MiniChart__axis MiniChart__axis--y'
+            >
+              {formatTick(tick)}
+            </text>
+          </g>
+        ))}
+        {xTicks.map((tick) => (
+          <g key={`x-${tick}`}>
+            <line
+              x1={sx(tick)}
+              x2={sx(tick)}
+              y1={pad.t}
+              y2={pad.t + ih}
+              className='MiniChart__gridLine MiniChart__gridLine--x'
+            />
+            <text
+              x={sx(tick)}
+              y={pad.t + ih + 20}
+              className='MiniChart__axis MiniChart__axis--x'
+            >
+              {Math.round(tick)}
+            </text>
+          </g>
+        ))}
         {/* action markers */}
         {markers.map((m, i) =>
           m.step >= xMin && m.step <= xMax ? (
@@ -141,7 +212,9 @@ function MiniChart({
                   points={line}
                   fill='none'
                   stroke={color}
-                  strokeWidth={1.5}
+                  strokeWidth={2.2}
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
                 />
               )}
               {bp
@@ -151,7 +224,7 @@ function MiniChart({
                     key={i}
                     cx={sx(p.step)}
                     cy={sy(p.value)}
-                    r={2.5}
+                    r={3.5}
                     fill={color}
                   />
                 ))}
@@ -200,7 +273,9 @@ function LiveCharts({
     <div className='LiveCharts'>
       {shown.length === 0 ? (
         <div className='LiveCharts__empty'>
-          Waiting for metrics from the training stream…
+          {store.loadingHistory
+            ? 'Loading metric history…'
+            : 'Waiting for metrics from the training stream…'}
         </div>
       ) : (
         <div className='LiveCharts__grid'>
