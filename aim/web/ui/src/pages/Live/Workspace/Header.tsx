@@ -39,8 +39,24 @@ function Header({
   store,
   onBack,
 }: IHeaderProps): React.FunctionComponentElement<React.ReactNode> {
-  const { state, status, step, connection } = store;
+  const { state, status, step, connection, rounds, currentRound } = store;
   const frozen = connection === 'ended';
+
+  // "round 2/6 (baseline)" from /state.rounds, updated on round_started rather than
+  // waiting for the 10s discovery poll (multiround_ux §4.5).
+  const roundTotal = rounds
+    ? (rounds.baseline_rounds ?? 0) + (rounds.agent_rounds_total ?? 0)
+    : 0;
+  const roundIndex =
+    typeof state?.round === 'number' ? state.round : currentRound;
+  const roundLabel =
+    roundTotal > 0
+      ? `round ${roundIndex}/${roundTotal}${
+          rounds?.is_baseline ? ' (baseline)' : ''
+        }`
+      : session
+      ? `round ${session.round}`
+      : null;
   const availableActions = new Set((state?.actions || []).map((a) => a.type));
   const has = (type: string) => availableActions.has(type);
 
@@ -72,7 +88,7 @@ function Header({
       </div>
 
       <div className='LiveHeader__facts'>
-        {session && <span>round {session.round}</span>}
+        {roundLabel && <span>{roundLabel}</span>}
         <span>step {step}</span>
         {goal && (
           <span>

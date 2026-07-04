@@ -30,6 +30,14 @@ function SessionCard({
   onSelect: (runHash: string) => void;
 }) {
   const goal = session.goal;
+  const roundTotal = session.rounds
+    ? (session.rounds.baseline_rounds ?? 0) +
+      (session.rounds.agent_rounds_total ?? 0)
+    : 0;
+  const roundLabel =
+    roundTotal > 0
+      ? `round ${session.round}/${roundTotal}`
+      : `round ${session.round}`;
   return (
     <button
       type='button'
@@ -46,7 +54,13 @@ function SessionCard({
         </span>
       </div>
       <div className='SessionCard__meta'>
-        <span>round {session.round}</span>
+        <span>{roundLabel}</span>
+        {session.rounds?.is_baseline && (
+          <>
+            <span>·</span>
+            <span className='SessionCard__baseline'>baseline running</span>
+          </>
+        )}
         <span>·</span>
         <span>step {session.step ?? '—'}</span>
         {goal && (

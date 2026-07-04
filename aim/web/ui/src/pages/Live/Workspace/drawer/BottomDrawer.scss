@@ -1,15 +1,34 @@
 .BottomDrawer {
+  position: relative;
   display: flex;
   flex-direction: column;
+  // Never let flexbox squeeze the drawer away when the chart grid overflows.
+  flex-shrink: 0;
   border-top: 1px solid #e8eaed;
   background: #fff;
 
   &.is-open {
-    height: 240px;
-    resize: vertical;
+    // Actual height is set inline (user-resizable via the drag handle).
     overflow: hidden;
     min-height: 120px;
-    max-height: 60vh;
+    max-height: 75vh;
+  }
+
+  // Invisible grab strip over the top border; widens the hit target for
+  // the drag-to-resize interaction.
+  &__resizer {
+    position: absolute;
+    top: -3px;
+    left: 0;
+    right: 0;
+    height: 7px;
+    cursor: row-resize;
+    z-index: 2;
+
+    &:hover,
+    &:active {
+      background: rgba(22, 81, 196, 0.25);
+    }
   }
 
   &__tabs {
@@ -113,6 +132,15 @@
   &__time {
     color: #9aa1a9;
     font-variant-numeric: tabular-nums;
+  }
+
+  &__round {
+    color: #57606a;
+    background: #eef1f5;
+    border-radius: 4px;
+    padding: 0 5px;
+    font-size: 10px;
+    font-weight: 600;
   }
 
   &__type {

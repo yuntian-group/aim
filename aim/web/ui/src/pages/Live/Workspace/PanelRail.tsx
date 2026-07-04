@@ -10,7 +10,9 @@ import { countQueued, hasFailure } from '../liveActionLifecycle';
 
 import InfoPanel from './panels/InfoPanel';
 import HyperparamsPanel from './panels/HyperparamsPanel';
-import PlaceholderPanel from './panels/PlaceholderPanel';
+import CheckpointsPanel from './panels/CheckpointsPanel';
+import ModelPanel from './panels/ModelPanel';
+import AgentPanel from './panels/AgentPanel';
 
 import './PanelRail.scss';
 
@@ -97,26 +99,11 @@ function PanelRail({
       case 'hyper':
         return <HyperparamsPanel store={store} disabled={disabled} />;
       case 'ckpts':
-        return (
-          <PlaceholderPanel
-            title='Checkpoints'
-            hint='Checkpoint save/load/fork lands in a later milestone. Use the header “Checkpoint” button to save now.'
-          />
-        );
+        return <CheckpointsPanel store={store} disabled={disabled} />;
       case 'model':
-        return (
-          <PlaceholderPanel
-            title='Model'
-            hint='Module tree + per-layer actions render here when the trainer exposes model_tree.'
-          />
-        );
+        return <ModelPanel store={store} disabled={disabled} />;
       case 'agent':
-        return (
-          <PlaceholderPanel
-            title='Agent'
-            hint='Agent configuration & context editor render here (feature-detected from state.actions).'
-          />
-        );
+        return <AgentPanel store={store} disabled={disabled} />;
       default:
         return null;
     }

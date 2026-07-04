@@ -1,6 +1,7 @@
 enum PathEnum {
   Dashboard = '/',
   Runs = '/runs',
+  Live = '/live',
   Metrics = '/metrics',
   Metrics_Id = '/metrics/:appId',
   Params = '/params',
@@ -24,7 +25,6 @@ enum PathEnum {
   Reports = '/reports',
   Report = '/reports/:reportId',
   Report_Edit = '/reports/:reportId/edit',
-  Live = '/live',
 }
 
 export { PathEnum };

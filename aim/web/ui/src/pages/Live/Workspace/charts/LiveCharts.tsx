@@ -20,10 +20,28 @@ const MARKER_TYPES = new Set([
 ]);
 
 const BRANCH_COLORS = ['#1651c4', '#1a7f37', '#9a6700', '#8b2fc9', '#c0392b'];
+const GHOST_STROKE = '#9aa4b2';
+const GHOST_MAX_POINTS = 300;
 
 function branchColor(branch: string, branches: string[]): string {
   const idx = branches.indexOf(branch);
   return BRANCH_COLORS[(idx < 0 ? 0 : idx) % BRANCH_COLORS.length];
+}
+
+// Uniform stride downsample so ghost rounds stay cheap to render (multiround_ux §4.2).
+function downsample(points: IMetricPoint[], max: number): IMetricPoint[] {
+  if (points.length <= max) {
+    return points;
+  }
+  const stride = Math.ceil(points.length / max);
+  const out: IMetricPoint[] = [];
+  for (let i = 0; i < points.length; i += stride) {
+    out.push(points[i]);
+  }
+  if (out[out.length - 1] !== points[points.length - 1]) {
+    out.push(points[points.length - 1]);
+  }
+  return out;
 }
 
 function formatTick(value: number): string {
@@ -59,10 +77,14 @@ interface IMarker {
 function MiniChart({
   title,
   points,
+  focusedRound,
+  baselineRounds,
   markers,
 }: {
   title: string;
   points: IMetricPoint[];
+  focusedRound: number;
+  baselineRounds: number;
   markers: IMarker[];
 }) {
   const width = 620;
@@ -71,13 +93,37 @@ function MiniChart({
   const iw = width - pad.l - pad.r;
   const ih = height - pad.t - pad.b;
 
+  const { focused, ghosts } = React.useMemo(() => {
+    const byRound: Record<number, IMetricPoint[]> = {};
+    points.forEach((p) => (byRound[p.round] = byRound[p.round] || []).push(p));
+    const focusedPts = byRound[focusedRound] || [];
+    const ghostRounds = Object.keys(byRound)
+      .map(Number)
+      .filter((r) => r !== focusedRound)
+      .sort((a, b) => a - b);
+    return {
+      focused: focusedPts,
+      ghosts: ghostRounds.map((r) => ({
+        round: r,
+        // Ghosts collapse to the `main` branch and downsample (§4.2).
+        points: downsample(
+          byRound[r].filter((p) => p.branch === 'main' && !p.eval),
+          GHOST_MAX_POINTS,
+        ),
+      })),
+    };
+  }, [points, focusedRound]);
+
+  // Domain fits the focused round; ghosts clip to it (identical by construction).
+  const domainPts = focused.length > 0 ? focused : points;
+
   const { xMin, xMax, yMin, yMax, branches } = React.useMemo(() => {
     let x0 = Infinity;
     let x1 = -Infinity;
     let y0 = Infinity;
     let y1 = -Infinity;
     const brs: string[] = [];
-    points.forEach((p) => {
+    domainPts.forEach((p) => {
       x0 = Math.min(x0, p.step);
       x1 = Math.max(x1, p.step);
       y0 = Math.min(y0, p.value);
@@ -100,7 +146,7 @@ function MiniChart({
       x1 = x0 + 1;
     }
     return { xMin: x0, xMax: x1, yMin: y0, yMax: y1, branches: brs };
-  }, [points]);
+  }, [domainPts]);
 
   if (points.length === 0) {
     return (
@@ -118,17 +164,21 @@ function MiniChart({
   const yTicks = buildTicks(yMin, yMax, 5);
 
   const byBranch: Record<string, IMetricPoint[]> = {};
-  points.forEach((p) => {
+  focused.forEach((p) => {
     (byBranch[p.branch] = byBranch[p.branch] || []).push(p);
   });
+
+  const last =
+    focused.length > 0
+      ? focused[focused.length - 1]
+      : points[points.length - 1];
 
   return (
     <div className='MiniChart'>
       <div className='MiniChart__head'>
         <span className='MiniChart__title'>{title}</span>
         <span className='MiniChart__last'>
-          step {points[points.length - 1].step} |{' '}
-          {formatTick(points[points.length - 1].value)}
+          step {last.step} | {formatTick(last.value)}
         </span>
       </div>
       <svg
@@ -180,7 +230,29 @@ function MiniChart({
             </text>
           </g>
         ))}
-        {/* action markers */}
+        {/* ghost rounds: thin, low-opacity, main branch only; baseline dashed */}
+        {ghosts.map((g) => {
+          const line = g.points
+            .map((p) => `${sx(p.step)},${sy(p.value)}`)
+            .join(' ');
+          if (!line) {
+            return null;
+          }
+          return (
+            <polyline
+              key={`ghost-${g.round}`}
+              points={line}
+              fill='none'
+              stroke={GHOST_STROKE}
+              strokeWidth={1.2}
+              strokeOpacity={0.55}
+              strokeDasharray={g.round < baselineRounds ? '4 3' : undefined}
+            >
+              <title>R{g.round}</title>
+            </polyline>
+          );
+        })}
+        {/* action markers (focused round only) */}
         {markers.map((m, i) =>
           m.step >= xMin && m.step <= xMax ? (
             <line
@@ -197,7 +269,7 @@ function MiniChart({
             </line>
           ) : null,
         )}
-        {/* series */}
+        {/* focused round: full-strength branch series + eval dots */}
         {Object.keys(byBranch).map((branch) => {
           const bp = byBranch[branch].slice().sort((a, b) => a.step - b.step);
           const line = bp
@@ -239,8 +311,9 @@ function MiniChart({
 function LiveCharts({
   store,
 }: ILiveChartsProps): React.FunctionComponentElement<React.ReactNode> {
-  const { metrics, state, events } = store;
+  const { metrics, state, events, focusedRound, rounds } = store;
   const goalMetric = state?.goal?.metric;
+  const baselineRounds = rounds?.baseline_rounds ?? 0;
 
   const allKeys = Object.keys(metrics);
   const defaultKeys = React.useMemo(() => {
@@ -255,16 +328,18 @@ function LiveCharts({
   const [pinned, setPinned] = React.useState<string[] | null>(null);
   const shown = pinned ?? defaultKeys;
 
+  // Markers belong to the focused round only (multiround_ux §4.2).
   const markers: IMarker[] = React.useMemo(
     () =>
       events
         .filter((e: IControlEvent) => MARKER_TYPES.has(e.type))
+        .filter((e) => (e.round ?? 0) === focusedRound)
         .map((e) => ({
           step:
             typeof e.payload?.step === 'number' ? e.payload.step : store.step,
           type: e.type,
         })),
-    [events, store.step],
+    [events, store.step, focusedRound],
   );
 
   const hidden = allKeys.filter((k) => !shown.includes(k));
@@ -284,6 +359,8 @@ function LiveCharts({
               key={key}
               title={key}
               points={metrics[key] || []}
+              focusedRound={focusedRound}
+              baselineRounds={baselineRounds}
               markers={markers}
             />
           ))}

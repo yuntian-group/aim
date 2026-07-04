@@ -32,6 +32,18 @@ function humanize(ev: IControlEvent): string {
       return `evaluate${p.split ? ` (${p.split})` : ''}`;
     case 'agent_enabled':
       return `agent ${p.enabled ? 'enabled' : 'disabled'}`;
+    case 'agent_call': {
+      const tools = (p.tool_calls || []).map((tc: any) => tc.name).join(', ');
+      return `${p.phase || 'llm call'} → ${tools || 'no tool calls'}`;
+    }
+    case 'agent_plan':
+      return p.strategy || JSON.stringify(p.config || {});
+    case 'agent_reflection':
+      return p.text || '';
+    case 'context_changed':
+      return `context updated (${(p.context || '').length} chars)`;
+    case 'model_tree':
+      return `model bound (${p.tree?.module_type || 'tree updated'})`;
     default:
       return JSON.stringify(p);
   }
@@ -44,6 +56,7 @@ function Row({ ev }: { ev: IControlEvent }) {
   return (
     <div className='EventRow'>
       <span className='EventRow__time'>{time}</span>
+      {ev.round ? <span className='EventRow__round'>R{ev.round}</span> : null}
       <span className={`EventRow__type EventRow__type--${ev.type}`}>
         {ev.type}
       </span>

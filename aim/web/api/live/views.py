@@ -91,17 +91,21 @@ def _scan_sessions():
     for url, runs in groups.items():
         runs.sort(key=lambda r: r['round'])
         newest = runs[-1]
-        reachable, status, step = _ping(url)
+        reachable, status, step, live_round, rounds = _ping(url)
         sessions.append(
             {
                 'run_hash': newest['run_hash'],
                 'experiment': newest['experiment'],
-                'round': newest['round'],
+                # Prefer the live round (more current than the newest run param, which
+                # only advances when the next round opens its Aim run).
+                'round': live_round if live_round is not None else newest['round'],
                 'status': status,
                 'reachable': reachable,
                 'goal': newest['goal'],
                 'step': step,
                 'run_hashes': [r['run_hash'] for r in runs],
+                'rounds_index': [r['round'] for r in runs],
+                'rounds': rounds,
             }
         )
     sessions.sort(key=lambda s: (not s['reachable'], s['experiment'] or ''))
@@ -109,15 +113,16 @@ def _scan_sessions():
 
 
 def _ping(url: str):
-    """Ping ``GET <url>/state``; return (reachable, status, step)."""
+    """Ping ``GET <url>/state``; return (reachable, status, step, round, rounds)."""
     try:
         resp = _session.get(f'{url.rstrip("/")}/state', timeout=_PING_TIMEOUT)
         if resp.status_code == 200:
             body = resp.json()
-            return True, body.get('status', 'running'), body.get('step')
+            return (True, body.get('status', 'running'), body.get('step'),
+                    body.get('round'), body.get('rounds'))
     except Exception:
         pass
-    return False, 'ended', None
+    return False, 'ended', None, None, None
 
 
 def _safe_int(value, default=0):

@@ -1,0 +1,113 @@
+.ProgressStrip {
+  border-bottom: 1px solid var(--gutter-color, #e8ebef);
+  background: #fff;
+
+  &__toggle {
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: transparent;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #57606a;
+    cursor: pointer;
+  }
+
+  &__body {
+    display: flex;
+    gap: 16px;
+    padding: 4px 12px 12px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  &__chart {
+    flex: none;
+    width: 320px;
+    height: 120px;
+
+    &--empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #b8bfc9;
+      font-size: 12px;
+      border: 1px dashed var(--gutter-color, #e8ebef);
+      border-radius: 6px;
+    }
+  }
+
+  &__plotArea {
+    fill: #fbfcfe;
+    stroke: var(--gutter-color, #e8ebef);
+  }
+
+  &__axis {
+    fill: #8b949e;
+    font-size: 9px;
+  }
+
+  &__scoreLine {
+    stroke: #1651c4;
+    stroke-width: 2;
+  }
+
+  &__baseline {
+    stroke: #9a6700;
+    stroke-width: 1;
+    stroke-dasharray: 4 3;
+  }
+
+  &__dot {
+    fill: #1651c4;
+
+    &--baseline {
+      fill: #9a6700;
+    }
+  }
+
+  &__tableWrap {
+    flex: 1;
+    min-width: 320px;
+    overflow-x: auto;
+  }
+
+  &__table {
+    border-collapse: collapse;
+    font-size: 11px;
+    width: 100%;
+
+    th,
+    td {
+      border: 1px solid var(--gutter-color, #e8ebef);
+      padding: 2px 8px;
+      text-align: left;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    th {
+      background: #fbfcfe;
+      color: #57606a;
+      font-weight: 600;
+    }
+
+    tr.is-live td {
+      background: rgba(22, 81, 196, 0.05);
+    }
+
+    td.is-changed {
+      background: rgba(154, 103, 0, 0.12);
+      font-weight: 600;
+    }
+
+    td.is-better {
+      color: #1a7f37;
+    }
+
+    td.is-worse {
+      color: #c0392b;
+    }
+  }
+}

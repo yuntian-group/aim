@@ -6,6 +6,8 @@ import { useLiveSession } from '../liveStore';
 
 import Header from './Header';
 import PanelRail from './PanelRail';
+import RoundRail from './RoundRail';
+import ProgressStrip from './ProgressStrip';
 import LiveCharts from './charts/LiveCharts';
 import BottomDrawer from './drawer/BottomDrawer';
 
@@ -22,7 +24,7 @@ function Workspace({
   session,
   onBack,
 }: IWorkspaceProps): React.FunctionComponentElement<React.ReactNode> {
-  const store = useLiveSession(runHash);
+  const store = useLiveSession(runHash, session?.run_hashes);
 
   const protocolVersion = store.state?.v;
   const unsupported = protocolVersion !== undefined && protocolVersion !== 2;
@@ -49,6 +51,7 @@ function Workspace({
           the last known state.
         </div>
       )}
+      <RoundRail store={store} />
       <div className='LiveWorkspace__body'>
         <PanelRail
           runHash={runHash}
@@ -57,6 +60,7 @@ function Workspace({
           disabled={archived}
         />
         <div className='LiveWorkspace__main'>
+          {store.isMultiround && <ProgressStrip store={store} />}
           <LiveCharts store={store} />
           <BottomDrawer runHash={runHash} store={store} disabled={archived} />
         </div>
