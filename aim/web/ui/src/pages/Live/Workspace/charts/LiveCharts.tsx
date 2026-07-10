@@ -114,8 +114,14 @@ function MiniChart({
     };
   }, [points, focusedRound]);
 
-  // Domain fits the focused round; ghosts clip to it (identical by construction).
-  const domainPts = focused.length > 0 ? focused : points;
+  // Domain must span the focused round AND the ghost rounds actually drawn, so a
+  // still-in-progress focused round (few steps) doesn't shove longer ghost lines
+  // off the right edge.
+  const domainPts = React.useMemo(() => {
+    const ghostPts = ghosts.flatMap((g) => g.points);
+    const base = focused.length > 0 ? focused : points;
+    return ghostPts.length > 0 ? [...base, ...ghostPts] : base;
+  }, [focused, ghosts, points]);
 
   const { xMin, xMax, yMin, yMax, branches } = React.useMemo(() => {
     let x0 = Infinity;

@@ -396,6 +396,10 @@ export function useLiveSession(
             ),
           };
         });
+      } else if (ev.type === 'knobs_registered') {
+        setState((prev) =>
+          prev ? { ...prev, knobs: ev.payload?.knobs || [] } : prev,
+        );
       } else if (ev.type === 'checkpoint_saved') {
         setState((prev) =>
           prev

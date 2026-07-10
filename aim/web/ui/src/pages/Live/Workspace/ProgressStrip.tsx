@@ -1,6 +1,3 @@
-// "Is the agent improving?" (multiround_ux §4.3): a collapsible band above the metric
-// grid with a score-vs-round chart and a per-round config/actions table. Renders only
-// in multiround sessions (gated by the caller).
 import React from 'react';
 
 import { ILiveSessionStore, IRoundMeta } from '../liveStore';
@@ -9,29 +6,6 @@ import './ProgressStrip.scss';
 
 interface IProgressStripProps {
   store: ILiveSessionStore;
-}
-
-// Per-round starting config (agent plan) + action counts, reduced from the round-stamped
-// event log (§4.3). Live source; archive replay of the text journal is a later gap.
-function useRoundDetails(store: ILiveSessionStore) {
-  return React.useMemo(() => {
-    const config: Record<number, Record<string, any>> = {};
-    const actions: Record<number, number> = {};
-    const planned = new Set<number>();
-    store.events.forEach((e) => {
-      const round = e.round ?? 0;
-      if (e.type === 'agent_plan') {
-        planned.add(e.payload?.round ?? round);
-        const cfg = e.payload?.config;
-        if (cfg && typeof cfg === 'object') {
-          config[e.payload?.round ?? round] = cfg;
-        }
-      } else if (e.type === 'knob_changed') {
-        actions[round] = (actions[round] || 0) + 1;
-      }
-    });
-    return { config, actions, planned };
-  }, [store.events]);
 }
 
 function ScoreChart({
@@ -145,22 +119,6 @@ function ProgressStrip({
   const { roundMeta } = store;
   const direction = store.state?.goal?.direction === 'max' ? 'max' : 'min';
   const baselineRounds = store.rounds?.baseline_rounds ?? 0;
-  const { config, actions, planned } = useRoundDetails(store);
-
-  const configKeys = React.useMemo(() => {
-    const keys = new Set<string>();
-    Object.values(config).forEach((c) =>
-      Object.keys(c).forEach((k) => keys.add(k)),
-    );
-    return Array.from(keys);
-  }, [config]);
-
-  const kindOf = (m: IRoundMeta): string => {
-    if (m.baseline) {
-      return 'baseline';
-    }
-    return planned.has(m.round) ? 'agent' : 'human';
-  };
 
   const bestBefore = (round: number): number | null => {
     const scores = roundMeta
@@ -193,19 +151,12 @@ function ProgressStrip({
               <thead>
                 <tr>
                   <th>Round</th>
-                  <th>Kind</th>
-                  {configKeys.map((k) => (
-                    <th key={k}>{k}</th>
-                  ))}
-                  <th>#act</th>
                   <th>Score</th>
                   <th>Δ best</th>
                 </tr>
               </thead>
               <tbody>
                 {roundMeta.map((m) => {
-                  const cfg = config[m.round] || {};
-                  const prevCfg = config[m.round - 1] || {};
                   const prevBest = bestBefore(m.round);
                   const delta =
                     m.score != null && prevBest != null
@@ -217,17 +168,6 @@ function ProgressStrip({
                   return (
                     <tr key={m.round} className={m.live ? 'is-live' : ''}>
                       <td>R{m.round}</td>
-                      <td>{kindOf(m)}</td>
-                      {configKeys.map((k) => {
-                        const v = cfg[k];
-                        const changed = v !== undefined && v !== prevCfg[k];
-                        return (
-                          <td key={k} className={changed ? 'is-changed' : ''}>
-                            {v !== undefined ? String(v) : '—'}
-                          </td>
-                        );
-                      })}
-                      <td>{actions[m.round] || 0}</td>
                       <td>{m.score != null ? m.score.toFixed(4) : '—'}</td>
                       <td
                         className={

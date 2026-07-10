@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { IControlEvent } from 'types/services/models/live/live';
+import { IControlEvent, IAgentInfo } from 'types/services/models/live/live';
 
 import { ILiveSessionStore } from '../../liveStore';
 import { IPendingAction } from '../../liveActionLifecycle';
@@ -34,6 +34,47 @@ function latestPending(
     .sort((a, b) => b.submittedAt - a.submittedAt)[0];
 }
 
+function prettyJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function configSummary(
+  agent: IAgentInfo | undefined,
+  draftValue: (field: string) => any,
+): string {
+  const provider = String(
+    draftValue('provider') || agent?.provider || '',
+  ).trim();
+  const model = String(draftValue('model') || agent?.model || '').trim();
+  const effort =
+    draftValue('reasoning_effort') ?? agent?.reasoning_effort ?? '';
+  const parts: string[] = [];
+  if (model) {
+    parts.push(provider ? `${provider}/${model}` : model);
+  } else {
+    parts.push('no model set');
+  }
+  parts.push(effort ? `${effort} reasoning` : 'default reasoning');
+  return parts.join(' · ');
+}
+
+function formatPromptText(text: string): string {
+  // Prompts are often a single JSON blob; pretty-print when parseable.
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+    return text;
+  }
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return text;
+  }
+}
+
 function PendingChip({ pending }: { pending?: IPendingAction }) {
   if (pending?.status === 'queued') {
     return (
@@ -52,12 +93,13 @@ function PendingChip({ pending }: { pending?: IPendingAction }) {
   return null;
 }
 
-// One LLM exchange (`agent_call`): the response and tool calls up front, the
-// full prompt (system + user) behind a disclosure — it can be several KB.
+// One LLM exchange (`agent_call`): outcome first (response + tools), full
+// prompt behind a disclosure — prompts can be several KB.
 function CallCard({ event }: { event: IControlEvent }) {
   const p = event.payload || {};
   const toolCalls: { name: string; arguments: any }[] = p.tool_calls || [];
   const usage = p.usage || {};
+  const hasPrompt = !!(p.system || p.user);
   return (
     <div className='AgentJournal__card'>
       <div className='AgentJournal__head'>
@@ -69,21 +111,6 @@ function CallCard({ event }: { event: IControlEvent }) {
           </span>
         )}
       </div>
-      <details className='AgentJournal__details'>
-        <summary>Prompt</summary>
-        {p.system && (
-          <>
-            <div className='AgentJournal__label'>system</div>
-            <pre className='AgentJournal__pre'>{p.system}</pre>
-          </>
-        )}
-        {p.user && (
-          <>
-            <div className='AgentJournal__label'>user</div>
-            <pre className='AgentJournal__pre'>{p.user}</pre>
-          </>
-        )}
-      </details>
       {p.response ? (
         <p className='AgentJournal__text'>{p.response}</p>
       ) : (
@@ -92,11 +119,34 @@ function CallCard({ event }: { event: IControlEvent }) {
         </p>
       )}
       {toolCalls.length > 0 && (
-        <code className='AgentJournal__config'>
-          {toolCalls
-            .map((tc) => `${tc.name}(${JSON.stringify(tc.arguments)})`)
-            .join('  ')}
-        </code>
+        <div className='AgentJournal__tools'>
+          {toolCalls.map((tc, i) => (
+            <pre key={i} className='AgentJournal__pre AgentJournal__pre--tool'>
+              {`${tc.name}\n${prettyJson(tc.arguments)}`}
+            </pre>
+          ))}
+        </div>
+      )}
+      {hasPrompt && (
+        <details className='AgentJournal__details'>
+          <summary>Prompt</summary>
+          {p.system && (
+            <>
+              <div className='AgentJournal__label'>system</div>
+              <pre className='AgentJournal__pre'>
+                {formatPromptText(p.system)}
+              </pre>
+            </>
+          )}
+          {p.user && (
+            <>
+              <div className='AgentJournal__label'>user</div>
+              <pre className='AgentJournal__pre'>
+                {formatPromptText(p.user)}
+              </pre>
+            </>
+          )}
+        </details>
       )}
     </div>
   );
@@ -122,9 +172,7 @@ function JournalCard({ event }: { event: IControlEvent }) {
         <>
           {p.strategy && <p className='AgentJournal__text'>{p.strategy}</p>}
           {p.config && Object.keys(p.config).length > 0 && (
-            <code className='AgentJournal__config'>
-              {JSON.stringify(p.config)}
-            </code>
+            <pre className='AgentJournal__pre'>{prettyJson(p.config)}</pre>
           )}
         </>
       ) : (
@@ -178,6 +226,20 @@ function AgentPanel({
   };
 
   const configDirty = Object.keys(changedConfig()).length > 0;
+  // Auto-open only for actionable blockers / in-flight apply — not for dirty
+  // drafts, so the user can still collapse while editing.
+  const forceConfigOpen =
+    configPending?.status === 'queued' ||
+    !!(agent?.attached && agent.api_key_set === false);
+  const [configOpen, setConfigOpen] = React.useState(
+    () => forceConfigOpen || !agent?.model,
+  );
+
+  React.useEffect(() => {
+    if (forceConfigOpen) {
+      setConfigOpen(true);
+    }
+  }, [forceConfigOpen]);
 
   // -- context editor ---------------------------------------------------------
   const [contextDraft, setContextDraft] = React.useState<string | null>(null);
@@ -211,8 +273,30 @@ function AgentPanel({
     return Object.keys(groups)
       .map(Number)
       .sort((a, b) => b - a)
-      .map((round) => ({ round, cards: groups[round] }));
+      .map((round) => ({
+        round,
+        cards: groups[round].sort((a, b) => b.seq - a.seq),
+      }));
   }, [store.events]);
+
+  // Auto-open each newly arrived latest round; keep user toggles after that.
+  const [openRounds, setOpenRounds] = React.useState<Set<number>>(
+    () => new Set(),
+  );
+  const latestRound = journalRounds[0]?.round;
+  React.useEffect(() => {
+    if (latestRound == null) {
+      return;
+    }
+    setOpenRounds((prev) => {
+      if (prev.has(latestRound)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.add(latestRound);
+      return next;
+    });
+  }, [latestRound]);
 
   const scoreFor = (round: number): string => {
     const meta = store.roundMeta.find((m) => m.round === round);
@@ -286,135 +370,201 @@ function AgentPanel({
 
       {agent?.attached && agent.api_key_set === false && (
         <div className='AgentPanel__warn'>
-          Agent cannot act — no API key configured. Set one below.
+          Agent cannot act — no API key configured. Add one in Configuration.
         </div>
       )}
 
-      {/* 2. Configuration (feature-detected, §3.8) */}
+      {/* 2. Configuration (feature-detected, §3.8) — collapsed by default */}
       {available.has('configure_agent') && (
-        <div className='AgentPanel__section'>
-          <h4>
-            Configuration <PendingChip pending={configPending} />
-          </h4>
-          <label className='AgentPanel__field'>
-            <span>Provider</span>
-            <select
-              value={PROVIDERS.includes(provider) ? provider : 'custom'}
-              disabled={disabled}
-              onChange={(e) => setDraft('provider', e.target.value)}
-            >
-              {PROVIDERS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className='AgentPanel__field'>
-            <span>Model</span>
-            <input
-              type='text'
-              placeholder='model slug (e.g. gpt-4o-mini)'
-              value={draftValue('model') || ''}
-              disabled={disabled}
-              onChange={(e) => setDraft('model', e.target.value)}
-            />
-          </label>
-          {showBaseUrl && (
-            <label className='AgentPanel__field'>
-              <span>Base URL</span>
-              <input
-                type='text'
-                placeholder='https://…/v1'
-                value={draftValue('base_url') || ''}
-                disabled={disabled}
-                onChange={(e) => setDraft('base_url', e.target.value)}
-              />
-            </label>
-          )}
-          <label className='AgentPanel__field'>
-            <span>Reasoning effort</span>
-            <select
-              value={draftValue('reasoning_effort') || ''}
-              disabled={disabled}
-              onChange={(e) => setDraft('reasoning_effort', e.target.value)}
-            >
-              {EFFORTS.map((effort) => (
-                <option key={effort} value={effort}>
-                  {effort || '(default)'}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className='AgentPanel__field'>
-            <span>Acts every N steps</span>
-            <input
-              type='number'
-              min={1}
-              value={draftValue('every') || ''}
-              disabled={disabled}
-              onChange={(e) => setDraft('every', e.target.value)}
-            />
-          </label>
-          <label className='AgentPanel__field'>
-            <span>API key</span>
-            {agent?.api_key_set && !replacingKey ? (
-              <span className='AgentPanel__keySet'>
-                key configured ✓{' '}
+        <div className='AgentPanel__section AgentPanel__section--flush'>
+          <details
+            className={`AgentPanel__config${
+              configDirty || replacingKey ? ' AgentPanel__config--dirty' : ''
+            }`}
+            open={forceConfigOpen || configOpen}
+            onToggle={(e) => {
+              if (forceConfigOpen) {
+                return;
+              }
+              setConfigOpen((e.currentTarget as HTMLDetailsElement).open);
+            }}
+          >
+            <summary className='AgentPanel__configHead'>
+              <span className='AgentPanel__configTitle'>Configuration</span>
+              <span className='AgentPanel__configSummary'>
+                {configSummary(agent, draftValue)}
+              </span>
+              {(configDirty || replacingKey) && (
+                <span className='AgentPanel__chip AgentPanel__chip--dirty'>
+                  unsaved
+                </span>
+              )}
+              <PendingChip pending={configPending} />
+            </summary>
+            <div className='AgentPanel__configBody'>
+              <label className='AgentPanel__field'>
+                <span>Provider</span>
+                <select
+                  value={PROVIDERS.includes(provider) ? provider : 'custom'}
+                  disabled={disabled}
+                  onChange={(e) => setDraft('provider', e.target.value)}
+                >
+                  {PROVIDERS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className='AgentPanel__field'>
+                <span>Model</span>
+                <input
+                  type='text'
+                  placeholder='model slug (e.g. gpt-4o-mini)'
+                  value={draftValue('model') || ''}
+                  disabled={disabled}
+                  onChange={(e) => setDraft('model', e.target.value)}
+                />
+              </label>
+              {showBaseUrl && (
+                <label className='AgentPanel__field'>
+                  <span>Base URL</span>
+                  <input
+                    type='text'
+                    placeholder='https://…/v1'
+                    value={draftValue('base_url') || ''}
+                    disabled={disabled}
+                    onChange={(e) => setDraft('base_url', e.target.value)}
+                  />
+                </label>
+              )}
+              <label className='AgentPanel__field'>
+                <span>Reasoning effort</span>
+                <select
+                  value={draftValue('reasoning_effort') || ''}
+                  disabled={disabled}
+                  onChange={(e) => setDraft('reasoning_effort', e.target.value)}
+                >
+                  {EFFORTS.map((effort) => (
+                    <option key={effort} value={effort}>
+                      {effort || '(default)'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className='AgentPanel__field'>
+                <span>Acts every N steps</span>
+                <input
+                  type='number'
+                  min={1}
+                  value={draftValue('every') || ''}
+                  disabled={disabled}
+                  onChange={(e) => setDraft('every', e.target.value)}
+                />
+              </label>
+              <label className='AgentPanel__field'>
+                <span>API key</span>
+                {agent?.api_key_set && !replacingKey ? (
+                  <span className='AgentPanel__keySet'>
+                    key configured ✓{' '}
+                    <button
+                      type='button'
+                      className='AgentPanel__link'
+                      disabled={disabled}
+                      onClick={() => setReplacingKey(true)}
+                    >
+                      Replace
+                    </button>
+                  </span>
+                ) : (
+                  <input
+                    type='password'
+                    placeholder='write-only; never shown back'
+                    autoComplete='new-password'
+                    value={apiKey}
+                    disabled={disabled}
+                    onChange={(e) => setApiKey(e.target.value)}
+                  />
+                )}
+              </label>
+              <div className='AgentPanel__footer'>
                 <button
                   type='button'
-                  className='AgentPanel__link'
-                  disabled={disabled}
-                  onClick={() => setReplacingKey(true)}
+                  className='LiveBtn LiveBtn--primary'
+                  disabled={
+                    disabled ||
+                    !configDirty ||
+                    configPending?.status === 'queued'
+                  }
+                  onClick={() =>
+                    store.submitAction(
+                      { type: 'configure_agent', payload: changedConfig() },
+                      'agent-config',
+                    )
+                  }
                 >
-                  Replace
+                  Apply
                 </button>
-              </span>
-            ) : (
-              <input
-                type='password'
-                placeholder='write-only; never shown back'
-                autoComplete='new-password'
-                value={apiKey}
-                disabled={disabled}
-                onChange={(e) => setApiKey(e.target.value)}
-              />
-            )}
-          </label>
-          <div className='AgentPanel__footer'>
-            <button
-              type='button'
-              className='LiveBtn LiveBtn--primary'
-              disabled={
-                disabled || !configDirty || configPending?.status === 'queued'
-              }
-              onClick={() =>
-                store.submitAction(
-                  { type: 'configure_agent', payload: changedConfig() },
-                  'agent-config',
-                )
-              }
-            >
-              Apply
-            </button>
-            {(configDirty || replacingKey) && (
-              <button
-                type='button'
-                className='LiveBtn'
-                onClick={() => {
-                  setDrafts({});
-                  setApiKey('');
-                  setReplacingKey(false);
-                }}
-              >
-                Discard
-              </button>
-            )}
-          </div>
+                {(configDirty || replacingKey) && (
+                  <button
+                    type='button'
+                    className='LiveBtn'
+                    onClick={() => {
+                      setDrafts({});
+                      setApiKey('');
+                      setReplacingKey(false);
+                    }}
+                  >
+                    Discard
+                  </button>
+                )}
+              </div>
+            </div>
+          </details>
         </div>
       )}
 
-      {/* 3. Training context (feature-detected) */}
+      {/* 3. Journal — newest round / newest operation first */}
+      <div className='AgentPanel__section AgentJournal'>
+        <h4>Journal</h4>
+        {journalRounds.length === 0 ? (
+          <p className='LivePanel__hint'>
+            Latest agent plans, calls, and reflections appear here first.
+          </p>
+        ) : (
+          journalRounds.map((group, i) => (
+            <details
+              key={group.round}
+              className='AgentJournal__round'
+              open={openRounds.has(group.round)}
+              onToggle={(e) => {
+                const isOpen = (e.currentTarget as HTMLDetailsElement).open;
+                setOpenRounds((prev) => {
+                  const next = new Set(prev);
+                  if (isOpen) {
+                    next.add(group.round);
+                  } else {
+                    next.delete(group.round);
+                  }
+                  return next;
+                });
+              }}
+            >
+              <summary className='AgentJournal__roundHead'>
+                Round {group.round} — {scoreFor(group.round)}
+                {i === 0 && (
+                  <span className='AgentJournal__latest'>latest</span>
+                )}
+              </summary>
+              {group.cards.map((event) => (
+                <JournalCard key={event.seq} event={event} />
+              ))}
+            </details>
+          ))
+        )}
+      </div>
+
+      {/* 4. Training context (feature-detected) */}
       {available.has('set_context') && (
         <div className='AgentPanel__section'>
           <h4>
@@ -456,31 +606,6 @@ function AgentPanel({
           )}
         </div>
       )}
-
-      {/* 4. Journal, grouped by round */}
-      <div className='AgentPanel__section AgentJournal'>
-        <h4>Journal</h4>
-        {journalRounds.length === 0 ? (
-          <p className='LivePanel__hint'>
-            Agent plans and reflections appear here as they arrive.
-          </p>
-        ) : (
-          journalRounds.map((group, i) => (
-            <details
-              key={group.round}
-              className='AgentJournal__round'
-              open={i === 0}
-            >
-              <summary className='AgentJournal__roundHead'>
-                Round {group.round} — {scoreFor(group.round)}
-              </summary>
-              {group.cards.map((event) => (
-                <JournalCard key={event.seq} event={event} />
-              ))}
-            </details>
-          ))
-        )}
-      </div>
     </div>
   );
 }

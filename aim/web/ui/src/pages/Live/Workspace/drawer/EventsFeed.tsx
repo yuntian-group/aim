@@ -13,6 +13,8 @@ function humanize(ev: IControlEvent): string {
   switch (ev.type) {
     case 'knob_changed':
       return `${p.name} → ${p.value}`;
+    case 'knobs_registered':
+      return `knobs: ${(p.knobs || []).map((k: any) => k.name).join(', ')}`;
     case 'status_changed':
       return `status: ${p.status}`;
     case 'metrics':
