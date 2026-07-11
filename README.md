@@ -1,3 +1,23 @@
+> [!IMPORTANT]
+> This branch is the companion Aim workspace for
+> [Interactive Training 2](https://github.com/yuntian-group/interactive-training).
+> Use branch `interactive-training-v2`; the exact tested commit is recorded in
+> `interactive-training/demo/aim.lock.json`. Standard Aim features remain available,
+> while `/live` adds the monitoring-and-control workspace, v2 proxy, and public demo
+> cards used by the paper.
+
+### Interactive Training 2 quick setup
+
+```bash
+git clone --branch interactive-training-v2 \
+  https://github.com/yuntian-group/aim.git
+export AIM_SRC="$PWD/aim"
+```
+
+Then follow the pinned setup in the Interactive Training 2 README. The companion
+application repository, not this fork, owns the training control protocol and demo
+gateway.
+
 <div align="center">
   <table>
     <tbody>
