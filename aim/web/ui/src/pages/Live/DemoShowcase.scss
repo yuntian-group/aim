@@ -3,7 +3,8 @@
   border: 1px solid #dfe3ea;
   border-radius: 12px;
   background: #ffffff;
-  overflow: hidden;
+  flex: 0 0 auto;
+  overflow: visible;
 
   &__tabs {
     display: flex;
