@@ -52,6 +52,7 @@ interface ILiveSession {
   queue_position?: number;
   message: string;
   aim_live_url: string;
+  run_hash?: string;
 }
 
 function youtubeEmbed(url: string): string {
@@ -301,8 +302,10 @@ function DemoShowcase(): React.FunctionComponentElement<React.ReactNode> | null 
               <span> · position {live.queue_position}</span>
             )}
             <p>{live.message}</p>
-            {live.status === 'running' && (
-              <p>Select the newest public-cpu session in the list below.</p>
+            {live.status === 'running' && live.run_hash && (
+              <p>
+                <a href={`/live?run=${live.run_hash}`}>Open live session</a>
+              </p>
             )}
           </div>
         )}
