@@ -20,6 +20,10 @@ function CommunityPopup(props: ICommunityPopupProps) {
   let timeoutIdRef = React.useRef<number>();
 
   React.useEffect(() => {
+    if (window.location.pathname.startsWith('/live')) {
+      setOpen(false);
+      return;
+    }
     const popupSeenStorage = localStorage.getItem(COMMUNITY_POPUP_SEEN);
 
     if (popupSeenStorage === 'true') {
