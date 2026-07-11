@@ -137,7 +137,7 @@ function ProgressStrip({
         className='ProgressStrip__toggle'
         onClick={() => setOpen((o) => !o)}
       >
-        {open ? '▾' : '▸'} Agent progress · {roundMeta.length} rounds
+        {open ? '▾' : '▸'} Multi-round control trace · {roundMeta.length} rounds
       </button>
       {open && (
         <div className='ProgressStrip__body'>

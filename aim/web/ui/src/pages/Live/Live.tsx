@@ -6,6 +6,7 @@ import BusyLoaderWrapper from 'components/BusyLoaderWrapper/BusyLoaderWrapper';
 import { PathEnum } from 'config/enums/routesEnum';
 
 import { useLiveSessions } from './liveStore';
+import DemoShowcase from './DemoShowcase';
 import SessionList from './SessionList';
 import Workspace from './Workspace/Workspace';
 
@@ -59,10 +60,10 @@ function Live(): React.FunctionComponentElement<React.ReactNode> {
       <div className='Live__header'>
         <h2 className='Live__title'>Interactive Training</h2>
         <span className='Live__subtitle'>
-          Steer live training runs — tune hyperparameters, pause/resume,
-          evaluate.
+          Inspect and control active training through one auditable protocol.
         </span>
       </div>
+      <DemoShowcase />
       <BusyLoaderWrapper
         isLoading={loading && sessions.length === 0}
         height='100%'
